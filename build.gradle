@@ -1,0 +1,51 @@
+plugins {
+    id 'org.springframework.boot' version '3.3.2' apply false
+    id 'io.spring.dependency-management' version '1.1.6' apply false
+}
+
+ext {
+    lombokVersion = '1.18.32'
+}
+
+allprojects {
+    group = 'com.product'
+    version = '0.0.1-SNAPSHOT'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
+    dependencyManagement {
+        imports {
+            mavenBom "org.springframework.boot:spring-boot-dependencies:3.3.2"
+        }
+    }
+
+    dependencies {
+        compileOnly "org.projectlombok:lombok:${lombokVersion}"
+        annotationProcessor "org.projectlombok:lombok:${lombokVersion}"
+
+        testCompileOnly "org.projectlombok:lombok:${lombokVersion}"
+        testAnnotationProcessor "org.projectlombok:lombok:${lombokVersion}"
+
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+        testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
+        testImplementation 'org.testcontainers:testcontainers:1.20.4'
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+    }
+}

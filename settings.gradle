@@ -1,0 +1,12 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "product-cache-service"
+include("product-domain")
+include("product-application")
+include("product-infrastructure")
+include("product-api")
