@@ -1,0 +1,80 @@
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---- Build outputs ----
+/target/
+/build/
+/out/
+/bin/
+/dist/
+*.class
+
+# ---- Gradle ----
+.gradle/
+
+# ---- Maven ----
+.mvn/timing.properties
+pom.xml.versionsBackup
+release.properties
+
+# ---- IDE / Editors ----
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# VS Code
+.vscode/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# ---- Logs ----
+logs/
+*.log
+*.out
+
+# ---- Test & Coverage reports ----
+coverage/
+jacoco.exec
+jacoco*.exec
+test-results/
+surefire-reports/
+failsafe-reports/
+pit-reports/
+
+# ---- Local environment configs (commit sample files instead) ----
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+application-local.properties
+
+# ---- Secrets & Certificates ----
+secrets/
+.secrets/
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# ---- Local DB files ----
+*.h2.db
+*.mv.db
+*.db
+*.sqlite
+
+# ---- Temp / Swap ----
+*.tmp
+*.swp
+*.swo
+*.orig
