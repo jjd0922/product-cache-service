@@ -1,9 +1,12 @@
 package com.product.application.service;
 
+import com.product.application.dto.cache.ProductRuntimeCacheData;
 import com.product.application.dto.result.ProductResult;
 import com.product.application.factory.ProductResultFactory;
+import com.product.application.factory.ProductRuntimeCacheFactory;
 import com.product.application.port.out.ProductDetailCachePort;
 import com.product.application.port.out.ProductReadPort;
+import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +27,9 @@ public class ProductCacheQueryService {
 
     private final ProductReadPort productReadPort;
     private final ProductDetailCachePort productDetailCachePort;
+    private final ProductRuntimeCachePort productRuntimeCachePort;
     private final ProductResultFactory productResultFactory;
+    private final ProductRuntimeCacheFactory productRuntimeCacheFactory;
 
     public Optional<ProductResult> getProduct(Long productId) {
         if (!isValidProductId(productId)) {
@@ -59,30 +64,40 @@ public class ProductCacheQueryService {
         }
 
         Map<Long, ProductResult> detailCacheMap = safeGetDetailCacheAll(distinctIds);
+        Map<Long, ProductRuntimeCacheData> runtimeCacheMap = safeGetRuntimeCacheAll(distinctIds);
+
+        Map<Long, ProductResult> resultMap = merge(detailCacheMap, runtimeCacheMap, distinctIds);
 
         List<Long> fallbackIds = distinctIds.stream()
-                .filter(productId -> !detailCacheMap.containsKey(productId))
+                .filter(productId -> !detailCacheMap.containsKey(productId) || !runtimeCacheMap.containsKey(productId))
                 .toList();
 
         if (fallbackIds.isEmpty()) {
-            return detailCacheMap;
+            return resultMap;
         }
 
-        // db fallback
         long detailMissCount = fallbackIds.stream()
                 .filter(productId -> !detailCacheMap.containsKey(productId))
                 .count();
+
+        long runtimeMissCount = fallbackIds.stream()
+                .filter(productId -> !runtimeCacheMap.containsKey(productId))
+                .count();
+
         log.debug(
-                "상품 cache miss. DB fallback 수행. fallbackCount={}, detailMissCount={}",
+                "상품 cache miss. DB fallback 수행. fallbackCount={}, detailMissCount={}, runtimeMissCount={}",
                 fallbackIds.size(),
-                detailMissCount
+                detailMissCount,
+                runtimeMissCount
         );
+
         List<Product> productsFromDb = productReadPort.findAllByIdIn(fallbackIds);
         if (productsFromDb.isEmpty()) {
-            return detailCacheMap;
+            return resultMap;
         }
 
         List<ProductResult> detailFallbacks = new ArrayList<>(productsFromDb.size());
+        List<ProductRuntimeCacheData> runtimeFallbacks = new ArrayList<>(productsFromDb.size());
 
         for (Product product : productsFromDb) {
             if (!isValidProduct(product)) {
@@ -100,21 +115,31 @@ public class ProductCacheQueryService {
                 continue;
             }
 
+            ProductRuntimeCacheData runtime = runtimeCacheMap.get(productId);
+            if (runtime == null) {
+                runtime = createRuntime(product);
+            }
 
             if (!detailCacheMap.containsKey(productId)) {
                 detailFallbacks.add(detail);
             }
 
-            detailCacheMap.put(productId, detail);
+            if (runtime != null && !runtimeCacheMap.containsKey(productId)) {
+                runtimeFallbacks.add(runtime);
+            }
+
+            resultMap.put(productId, detail.applyRuntime(runtime));
         }
 
         safePutDetailCacheAll(detailFallbacks);
+        safePutRuntimeCacheAll(runtimeFallbacks);
 
-        return detailCacheMap;
+        return resultMap;
     }
 
     private Map<Long, ProductResult> merge(
             Map<Long, ProductResult> detailCacheMap,
+            Map<Long, ProductRuntimeCacheData> runtimeCacheMap,
             List<Long> productIds
     ) {
         Map<Long, ProductResult> resultMap = new LinkedHashMap<>();
@@ -125,12 +150,21 @@ public class ProductCacheQueryService {
                 continue;
             }
 
-            detailCacheMap.put(productId, detail);
+            ProductRuntimeCacheData runtime = runtimeCacheMap.get(productId);
+            resultMap.put(productId, detail.applyRuntime(runtime));
         }
 
         return resultMap;
     }
 
+    private ProductRuntimeCacheData createRuntime(Product product) {
+        return productRuntimeCacheFactory.from(
+                product.getId(),
+                null,
+                product.getStock(),
+                product.getUpdatedAt()
+        );
+    }
 
     private Map<Long, ProductResult> safeGetDetailCacheAll(Collection<Long> productIds) {
         try {
@@ -138,6 +172,19 @@ public class ProductCacheQueryService {
         } catch (RuntimeException e) {
             log.warn(
                     "상품 detail cache 일괄 조회 실패. DB fallback 예정. idCount={}, message={}",
+                    productIds.size(),
+                    e.getMessage()
+            );
+            return Map.of();
+        }
+    }
+
+    private Map<Long, ProductRuntimeCacheData> safeGetRuntimeCacheAll(Collection<Long> productIds) {
+        try {
+            return productRuntimeCachePort.getAll(productIds);
+        } catch (RuntimeException e) {
+            log.warn(
+                    "상품 runtime cache 일괄 조회 실패. runtime cache 없이 진행. idCount={}, message={}",
                     productIds.size(),
                     e.getMessage()
             );
@@ -156,6 +203,22 @@ public class ProductCacheQueryService {
             log.warn(
                     "DB fallback 이후 상품 detail cache 일괄 재적재 실패. count={}, message={}",
                     products.size(),
+                    e.getMessage()
+            );
+        }
+    }
+
+    private void safePutRuntimeCacheAll(Collection<ProductRuntimeCacheData> runtimeDataList) {
+        if (runtimeDataList == null || runtimeDataList.isEmpty()) {
+            return;
+        }
+
+        try {
+            productRuntimeCachePort.putAll(runtimeDataList);
+        } catch (RuntimeException e) {
+            log.warn(
+                    "DB fallback 이후 상품 runtime cache 일괄 재적재 실패. count={}, message={}",
+                    runtimeDataList.size(),
                     e.getMessage()
             );
         }

@@ -13,6 +13,10 @@ public class ProductCacheProperties {
     private String detailKeyPrefix = "product:detail:";
     private long detailTtlSeconds = 1800;
 
+    /** 런타임 캐시(Hash) */
+    private String runtimeKeyPrefix = "product:runtime:";
+    private long runtimeTtlSeconds = 300;
+
     /** pipeline batch size */
     private int pipelineBatchSize = 500;
 }

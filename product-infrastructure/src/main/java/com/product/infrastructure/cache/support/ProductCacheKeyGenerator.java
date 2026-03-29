@@ -14,4 +14,8 @@ public class ProductCacheKeyGenerator {
         return properties.getDetailKeyPrefix() + productId;
     }
 
+    public String runtimeKey(Long productId) {
+        return properties.getRuntimeKeyPrefix() + productId;
+    }
+
 }
