@@ -170,6 +170,6 @@ product-service
 
 ## 문서
 
-상세 설계 배경과 운영 전략은 별도 문서에 정리했다.
+상세 설계 문서
 
 - Notion: https://www.notion.so/Product-Cache-Service-32dd2aef6d3180659e80c88cccd7a58c
