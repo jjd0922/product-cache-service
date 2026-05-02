@@ -279,11 +279,11 @@ class ProductCacheRefreshServiceTest {
 
     @Test
     @DisplayName("evictAll 은 중복 ID 를 제거하지 않고 그대로 전달한다")
-    void evictAll_whenDuplicateIdsExist_thenKeepDuplicates() {
+    void evictAll_whenDuplicateIdsExist_thenRemoveDuplicates() {
         productCacheRefreshService.evictAll(List.of(1L, 2L, 1L));
 
-        verify(productDetailCachePort).evictAll(List.of(1L, 2L, 1L));
-        verify(productRuntimeCachePort).evictAll(List.of(1L, 2L, 1L));
+        verify(productDetailCachePort).evictAll(List.of(1L, 2L));
+        verify(productRuntimeCachePort).evictAll(List.of(1L, 2L));
     }
 
     @Test
