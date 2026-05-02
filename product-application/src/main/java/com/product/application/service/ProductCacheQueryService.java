@@ -4,6 +4,7 @@ import com.product.application.dto.cache.ProductRuntimeCacheData;
 import com.product.application.dto.result.ProductResult;
 import com.product.application.factory.ProductResultFactory;
 import com.product.application.factory.ProductRuntimeCacheFactory;
+import com.product.application.port.out.ProductCacheMetricsPort;
 import com.product.application.port.out.ProductDetailCachePort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.ProductRuntimeCachePort;
@@ -25,9 +26,13 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class ProductCacheQueryService {
 
+    private static final String DETAIL_CACHE = "detail";
+    private static final String RUNTIME_CACHE = "runtime";
+
     private final ProductReadPort productReadPort;
     private final ProductDetailCachePort productDetailCachePort;
     private final ProductRuntimeCachePort productRuntimeCachePort;
+    private final ProductCacheMetricsPort productCacheMetricsPort;
     private final ProductResultFactory productResultFactory;
     private final ProductRuntimeCacheFactory productRuntimeCacheFactory;
 
@@ -92,6 +97,8 @@ public class ProductCacheQueryService {
         );
 
         List<Product> productsFromDb = productReadPort.findAllByIdIn(fallbackIds);
+        productCacheMetricsPort.recordDbFallback(fallbackIds.size(), productsFromDb.size());
+
         if (productsFromDb.isEmpty()) {
             return resultMap;
         }
@@ -168,8 +175,11 @@ public class ProductCacheQueryService {
 
     private Map<Long, ProductResult> safeGetDetailCacheAll(Collection<Long> productIds) {
         try {
-            return productDetailCachePort.getAll(productIds);
+            Map<Long, ProductResult> results = productDetailCachePort.getAll(productIds);
+            productCacheMetricsPort.recordCacheRead(DETAIL_CACHE, productIds.size(), results.size(), false);
+            return results;
         } catch (RuntimeException e) {
+            productCacheMetricsPort.recordCacheRead(DETAIL_CACHE, productIds.size(), 0L, true);
             log.warn(
                     "상품 detail cache 일괄 조회 실패. DB fallback 예정. idCount={}, message={}",
                     productIds.size(),
@@ -181,8 +191,11 @@ public class ProductCacheQueryService {
 
     private Map<Long, ProductRuntimeCacheData> safeGetRuntimeCacheAll(Collection<Long> productIds) {
         try {
-            return productRuntimeCachePort.getAll(productIds);
+            Map<Long, ProductRuntimeCacheData> results = productRuntimeCachePort.getAll(productIds);
+            productCacheMetricsPort.recordCacheRead(RUNTIME_CACHE, productIds.size(), results.size(), false);
+            return results;
         } catch (RuntimeException e) {
+            productCacheMetricsPort.recordCacheRead(RUNTIME_CACHE, productIds.size(), 0L, true);
             log.warn(
                     "상품 runtime cache 일괄 조회 실패. runtime cache 없이 진행. idCount={}, message={}",
                     productIds.size(),
@@ -199,7 +212,9 @@ public class ProductCacheQueryService {
 
         try {
             productDetailCachePort.putAll(products);
+            productCacheMetricsPort.recordCacheWrite(DETAIL_CACHE, products.size(), false);
         } catch (RuntimeException e) {
+            productCacheMetricsPort.recordCacheWrite(DETAIL_CACHE, products.size(), true);
             log.warn(
                     "DB fallback 이후 상품 detail cache 일괄 재적재 실패. count={}, message={}",
                     products.size(),
@@ -215,7 +230,9 @@ public class ProductCacheQueryService {
 
         try {
             productRuntimeCachePort.putAll(runtimeDataList);
+            productCacheMetricsPort.recordCacheWrite(RUNTIME_CACHE, runtimeDataList.size(), false);
         } catch (RuntimeException e) {
+            productCacheMetricsPort.recordCacheWrite(RUNTIME_CACHE, runtimeDataList.size(), true);
             log.warn(
                     "DB fallback 이후 상품 runtime cache 일괄 재적재 실패. count={}, message={}",
                     runtimeDataList.size(),

@@ -1,6 +1,7 @@
 package com.product.application.service;
 
 import com.product.application.cache.RebuildRequest;
+import com.product.application.port.out.ProductCacheMetricsPort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.RebuildJobStore;
 import com.product.domain.product.model.Product;
@@ -21,6 +22,7 @@ public class ProductCacheRebuildAsyncWorker {
     private final ProductReadPort productReadPort;
     private final ProductCacheRefreshService productCacheRefreshService;
     private final RebuildJobStore rebuildJobStore;
+    private final ProductCacheMetricsPort productCacheMetricsPort;
 
     @Async
     public void rebuild(UUID jobId, RebuildRequest request) {
@@ -28,6 +30,7 @@ public class ProductCacheRebuildAsyncWorker {
 
         try {
             if (request == null) {
+                productCacheMetricsPort.recordRebuildFailed();
                 rebuildJobStore.markFailed(
                         jobId,
                         "캐시 재빌드가 실패했습니다.",
@@ -37,12 +40,14 @@ public class ProductCacheRebuildAsyncWorker {
             }
 
             if (request.isEmpty()) {
+                productCacheMetricsPort.recordRebuildCompleted(0L, 0L, elapsedMs(totalStartNs));
                 rebuildJobStore.markSucceeded(jobId, "재빌드 대상 상품이 없습니다.");
                 return;
             }
 
             int chunkSize = request.chunkSize();
             if (chunkSize < 1) {
+                productCacheMetricsPort.recordRebuildFailed();
                 rebuildJobStore.markFailed(
                         jobId,
                         "캐시 재빌드가 실패했습니다.",
@@ -79,9 +84,11 @@ public class ProductCacheRebuildAsyncWorker {
 
                 processed += chunkIds.size();
 
-                long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - chunkStartNs);
+                long elapsedMs = elapsedMs(chunkStartNs);
                 int loadedCount = products.size();
                 int missingCount = Math.max(0, chunkIds.size() - loadedCount);
+
+                productCacheMetricsPort.recordRebuildChunk(chunkIds.size(), loadedCount, elapsedMs);
 
                 String progressMessage = String.format(
                         "청크 %d/%d 처리 완료. requested=%d, loaded=%d, missing=%d, elapsedMs=%d",
@@ -107,7 +114,8 @@ public class ProductCacheRebuildAsyncWorker {
                 rebuildJobStore.updateProgress(jobId, processed, progressMessage);
             }
 
-            long totalElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - totalStartNs);
+            long totalElapsedMs = elapsedMs(totalStartNs);
+            productCacheMetricsPort.recordRebuildCompleted(targetIds.size(), processed, totalElapsedMs);
 
             rebuildJobStore.markSucceeded(
                     jobId,
@@ -119,6 +127,7 @@ public class ProductCacheRebuildAsyncWorker {
                     )
             );
         } catch (Exception e) {
+            productCacheMetricsPort.recordRebuildFailed();
             String failureReason = buildFailureReason(e);
 
             log.error(
@@ -147,5 +156,9 @@ public class ProductCacheRebuildAsyncWorker {
         }
 
         return e.getClass().getSimpleName() + ": " + message;
+    }
+
+    private long elapsedMs(long startNs) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNs);
     }
 }
