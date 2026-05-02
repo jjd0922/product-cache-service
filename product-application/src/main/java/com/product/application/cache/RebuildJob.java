@@ -35,6 +35,25 @@ public class RebuildJob {
         return new RebuildJob(UUID.randomUUID(), total, filterSummary, LocalDateTime.now());
     }
 
+    public static RebuildJob restore(Snapshot snapshot) {
+        if (snapshot == null) {
+            throw new IllegalArgumentException("snapshot must not be null");
+        }
+
+        RebuildJob job = new RebuildJob(
+                snapshot.jobId(),
+                snapshot.total(),
+                snapshot.filterSummary(),
+                snapshot.startedAt()
+        );
+        job.status = snapshot.status() != null ? snapshot.status() : RebuildJobStatus.QUEUED;
+        job.processed = Math.min(Math.max(snapshot.processed(), 0L), job.total);
+        job.message = snapshot.message();
+        job.failureReason = snapshot.failureReason();
+        job.finishedAt = snapshot.finishedAt();
+        return job;
+    }
+
     public synchronized void markRunning(String message) {
         this.status = RebuildJobStatus.RUNNING;
         this.message = message;

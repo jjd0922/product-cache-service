@@ -19,4 +19,11 @@ public class ProductCacheProperties {
 
     /** pipeline batch size */
     private int pipelineBatchSize = 500;
+
+    /** rebuild job store: in-memory or redis */
+    private String rebuildJobStore = "in-memory";
+    private String rebuildJobKeyPrefix = "product:cache:rebuild:job:";
+    private String rebuildActiveKey = "product:cache:rebuild:active";
+    private long rebuildJobTtlSeconds = 86400;
+    private long rebuildActiveTtlSeconds = 21600;
 }
