@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.product.application.dto.result.ProductResult;
 import com.product.infrastructure.cache.RedisProductDetailCacheAdapter;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
+import com.product.infrastructure.cache.support.ProductCacheTtlPolicy;
 import com.product.infrastructure.cache.support.RedisCacheBatchExecutor;
 import com.product.infrastructure.config.ProductCacheProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,11 +62,15 @@ class RedisProductDetailCacheAdapterIntegrationTest {
     @MockBean
     private RedisCacheBatchExecutor batchExecutor;
 
+    @MockBean
+    private ProductCacheTtlPolicy ttlPolicy;
+
     @BeforeEach
     void setUp() {
         when(properties.getDetailTtlSeconds()).thenReturn(300L);
         when(properties.getPipelineBatchSize()).thenReturn(100);
         when(keyGenerator.detailKey(1L)).thenReturn("product:detail:1");
+        when(ttlPolicy.detailTtlSeconds()).thenReturn(300L);
 
         redisTemplate.execute((RedisCallback<Object>) connection -> {
             connection.serverCommands().flushDb();

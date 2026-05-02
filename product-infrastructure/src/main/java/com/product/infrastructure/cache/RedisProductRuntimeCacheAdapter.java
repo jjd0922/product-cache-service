@@ -7,6 +7,7 @@ import com.product.application.dto.cache.ProductRuntimeCacheData;
 import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
 import com.product.infrastructure.cache.support.RedisCacheBatchExecutor;
+import com.product.infrastructure.cache.support.ProductCacheTtlPolicy;
 import com.product.infrastructure.config.ProductCacheProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
@@ -28,19 +29,22 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
     private final ProductCacheProperties properties;
     private final ProductCacheKeyGenerator keyGenerator;
     private final RedisCacheBatchExecutor batchExecutor;
+    private final ProductCacheTtlPolicy ttlPolicy;
 
     public RedisProductRuntimeCacheAdapter(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
             ProductCacheProperties properties,
             ProductCacheKeyGenerator keyGenerator,
-            RedisCacheBatchExecutor batchExecutor
+            RedisCacheBatchExecutor batchExecutor,
+            ProductCacheTtlPolicy ttlPolicy
     ) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.keyGenerator = keyGenerator;
         this.batchExecutor = batchExecutor;
+        this.ttlPolicy = ttlPolicy;
     }
 
     @Override
@@ -161,7 +165,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
 
         try {
             String payload = objectMapper.writeValueAsString(runtimeCacheData);
-            valueOperations().set(key, payload, Duration.ofSeconds(properties.getRuntimeTtlSeconds()));
+            valueOperations().set(key, payload, Duration.ofSeconds(ttlPolicy.runtimeTtlSeconds()));
             log.debug(
                     "event=cache_put_success cache={} key={} productId={}",
                     CACHE_NAME, key, runtimeCacheData.productId()
@@ -235,7 +239,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
             );
 
             try {
-                batchExecutor.setExBatch(batch, properties.getRuntimeTtlSeconds());
+                batchExecutor.setExBatch(batch, ttlPolicy.runtimeTtlSeconds());
             } catch (RuntimeException e) {
                 throw new CacheOperationException(
                         CACHE_NAME,
