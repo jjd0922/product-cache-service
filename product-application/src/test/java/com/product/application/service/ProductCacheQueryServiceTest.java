@@ -4,6 +4,7 @@ import com.product.application.dto.cache.ProductRuntimeCacheData;
 import com.product.application.dto.result.ProductResult;
 import com.product.application.factory.ProductResultFactory;
 import com.product.application.factory.ProductRuntimeCacheFactory;
+import com.product.application.port.out.ProductCacheMetricsPort;
 import com.product.application.port.out.ProductDetailCachePort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.ProductRuntimeCachePort;
@@ -44,6 +45,9 @@ class ProductCacheQueryServiceTest {
     private ProductRuntimeCachePort productRuntimeCachePort;
 
     @Mock
+    private ProductCacheMetricsPort productCacheMetricsPort;
+
+    @Mock
     private ProductResultFactory productResultFactory;
 
     @Mock
@@ -63,6 +67,7 @@ class ProductCacheQueryServiceTest {
                 productReadPort,
                 productDetailCachePort,
                 productRuntimeCachePort,
+                productCacheMetricsPort,
                 productResultFactory,
                 productRuntimeCacheFactory
         );
@@ -275,6 +280,7 @@ class ProductCacheQueryServiceTest {
                 productReadPort,
                 productDetailCachePort,
                 productRuntimeCachePort,
+                productCacheMetricsPort,
                 productResultFactory,
                 productRuntimeCacheFactory
         );
