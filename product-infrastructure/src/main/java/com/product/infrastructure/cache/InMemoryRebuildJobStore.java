@@ -2,6 +2,7 @@ package com.product.infrastructure.cache;
 
 import com.product.application.cache.RebuildJob;
 import com.product.application.port.out.RebuildJobStore;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
@@ -12,6 +13,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Component
+@ConditionalOnProperty(
+        prefix = "product.cache",
+        name = "rebuild-job-store",
+        havingValue = "in-memory",
+        matchIfMissing = true
+)
 public class InMemoryRebuildJobStore implements RebuildJobStore {
 
     private final Map<UUID, RebuildJob> jobs = new ConcurrentHashMap<>();
