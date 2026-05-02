@@ -7,6 +7,7 @@ import com.product.application.dto.result.ProductResult;
 import com.product.application.port.out.ProductDetailCachePort;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
 import com.product.infrastructure.cache.support.RedisCacheBatchExecutor;
+import com.product.infrastructure.cache.support.ProductCacheTtlPolicy;
 import com.product.infrastructure.config.ProductCacheProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
@@ -28,19 +29,22 @@ public class RedisProductDetailCacheAdapter implements ProductDetailCachePort {
     private final ProductCacheProperties properties;
     private final ProductCacheKeyGenerator keyGenerator;
     private final RedisCacheBatchExecutor batchExecutor;
+    private final ProductCacheTtlPolicy ttlPolicy;
 
     public RedisProductDetailCacheAdapter(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper,
             ProductCacheProperties properties,
             ProductCacheKeyGenerator keyGenerator,
-            RedisCacheBatchExecutor batchExecutor
+            RedisCacheBatchExecutor batchExecutor,
+            ProductCacheTtlPolicy ttlPolicy
     ) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.keyGenerator = keyGenerator;
         this.batchExecutor = batchExecutor;
+        this.ttlPolicy = ttlPolicy;
     }
 
     @Override
@@ -161,7 +165,7 @@ public class RedisProductDetailCacheAdapter implements ProductDetailCachePort {
 
         try {
             String payload = objectMapper.writeValueAsString(product);
-            valueOperations().set(key, payload, Duration.ofSeconds(properties.getDetailTtlSeconds()));
+            valueOperations().set(key, payload, Duration.ofSeconds(ttlPolicy.detailTtlSeconds()));
             log.debug("event=cache_put_success cache={} key={} productId={}", CACHE_NAME, key, product.id());
         } catch (JsonProcessingException e) {
             throw new CacheOperationException(
@@ -232,7 +236,7 @@ public class RedisProductDetailCacheAdapter implements ProductDetailCachePort {
             );
 
             try {
-                batchExecutor.setExBatch(batch, properties.getDetailTtlSeconds());
+                batchExecutor.setExBatch(batch, ttlPolicy.detailTtlSeconds());
             } catch (RuntimeException e) {
                 throw new CacheOperationException(
                         CACHE_NAME,

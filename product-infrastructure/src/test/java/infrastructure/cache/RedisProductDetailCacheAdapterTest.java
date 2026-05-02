@@ -6,6 +6,7 @@ import com.product.application.common.exception.CacheOperationException;
 import com.product.application.dto.result.ProductResult;
 import com.product.infrastructure.cache.RedisProductDetailCacheAdapter;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
+import com.product.infrastructure.cache.support.ProductCacheTtlPolicy;
 import com.product.infrastructure.cache.support.RedisCacheBatchExecutor;
 import com.product.infrastructure.config.ProductCacheProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,9 @@ class RedisProductDetailCacheAdapterTest {
     private RedisCacheBatchExecutor batchExecutor;
 
     @Mock
+    private ProductCacheTtlPolicy ttlPolicy;
+
+    @Mock
     private ValueOperations<String, String> valueOperations;
 
     private RedisProductDetailCacheAdapter adapter;
@@ -61,7 +65,8 @@ class RedisProductDetailCacheAdapterTest {
                 objectMapper,
                 properties,
                 keyGenerator,
-                batchExecutor
+                batchExecutor,
+                ttlPolicy
         );
     }
 
@@ -613,7 +618,7 @@ class RedisProductDetailCacheAdapterTest {
     }
 
     private void stubDetailTtl(long ttlSeconds) {
-        when(properties.getDetailTtlSeconds()).thenReturn(ttlSeconds);
+        when(ttlPolicy.detailTtlSeconds()).thenReturn(ttlSeconds);
     }
 
     private void stubBatchSize(int batchSize) {
