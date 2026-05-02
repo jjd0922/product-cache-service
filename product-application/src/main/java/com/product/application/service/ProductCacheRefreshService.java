@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 @Service
@@ -111,13 +112,13 @@ public class ProductCacheRefreshService {
             return List.of();
         }
 
-        List<Long> validIds = new ArrayList<>();
+        LinkedHashSet<Long> validIds = new LinkedHashSet<>();
         for (Long productId : productIds) {
             if (isValidProductId(productId)) {
                 validIds.add(productId);
             }
         }
-        return validIds;
+        return new ArrayList<>(validIds);
     }
 
     private boolean isValidProduct(Product product) {

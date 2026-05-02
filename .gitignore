@@ -8,6 +8,7 @@ $RECYCLE.BIN/
 # ---- Build outputs ----
 /target/
 /build/
+**/build/
 /out/
 /bin/
 /dist/
@@ -15,6 +16,8 @@ $RECYCLE.BIN/
 
 # ---- Gradle ----
 .gradle/
+/product-*/gradlew
+/product-*/gradlew.bat
 
 # ---- Maven ----
 .mvn/timing.properties

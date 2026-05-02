@@ -72,4 +72,35 @@ public class RebuildJob {
     public synchronized boolean isActive() {
         return status == RebuildJobStatus.QUEUED || status == RebuildJobStatus.RUNNING;
     }
+
+    public synchronized Snapshot snapshot() {
+        return new Snapshot(
+                jobId,
+                total,
+                filterSummary,
+                startedAt,
+                status,
+                processed,
+                getProgressPercent(),
+                isActive(),
+                message,
+                failureReason,
+                finishedAt
+        );
+    }
+
+    public record Snapshot(
+            UUID jobId,
+            long total,
+            String filterSummary,
+            LocalDateTime startedAt,
+            RebuildJobStatus status,
+            long processed,
+            int progressPercent,
+            boolean active,
+            String message,
+            String failureReason,
+            LocalDateTime finishedAt
+    ) {
+    }
 }

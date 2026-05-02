@@ -14,5 +14,7 @@ public interface ProductReadPort {
 
     List<Product> findAll();
 
+    long countAll();
+
     List<Long> findAllIds();
 }
