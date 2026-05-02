@@ -16,6 +16,8 @@ $RECYCLE.BIN/
 
 # ---- Gradle ----
 .gradle/
+/product-*/gradlew
+/product-*/gradlew.bat
 
 # ---- Maven ----
 .mvn/timing.properties
