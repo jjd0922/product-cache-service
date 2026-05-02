@@ -191,6 +191,18 @@ class JpaProductReadAdapterTest {
         verifyNoInteractions(productEntityMapper);
     }
 
+    @Test
+    @DisplayName("countAll returns product count")
+    void returnsAllCount() {
+        when(productJpaRepository.count()).thenReturn(3L);
+
+        long actual = jpaProductReadAdapter.countAll();
+
+        assertThat(actual).isEqualTo(3L);
+        verify(productJpaRepository).count();
+        verifyNoInteractions(productEntityMapper);
+    }
+
     private ProductEntity productEntity(Long id, String name, String price, Integer stock, String updatedAt) {
         return ProductEntity.builder()
                 .id(id)

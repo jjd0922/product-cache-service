@@ -48,6 +48,11 @@ public class JpaProductReadAdapter implements ProductReadPort {
     }
 
     @Override
+    public long countAll() {
+        return productJpaRepository.count();
+    }
+
+    @Override
     public List<Long> findAllIds() {
         return productJpaRepository.findAllIds();
     }

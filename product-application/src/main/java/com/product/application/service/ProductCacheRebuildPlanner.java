@@ -26,6 +26,7 @@ public class ProductCacheRebuildPlanner {
         String filterSummary;
 
         if (command == null || command.productIds() == null || command.productIds().isEmpty()) {
+            validateTargetCount(productReadPort.countAll(), "ALL");
             targetIds = productReadPort.findAllIds();
             filterSummary = "ALL";
         } else {
@@ -38,7 +39,7 @@ public class ProductCacheRebuildPlanner {
         return new RebuildRequest(targetIds, DEFAULT_CHUNK_SIZE, filterSummary);
     }
 
-    private void validateTargetCount(int targetCount, String filterSummary) {
+    private void validateTargetCount(long targetCount, String filterSummary) {
         if (targetCount > MAX_REBUILD_TARGET_COUNT) {
             throw new ProductException(
                     ProductErrorCode.REBUILD_REQUEST_LIMIT_EXCEEDED,

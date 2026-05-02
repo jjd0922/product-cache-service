@@ -31,6 +31,7 @@ class ProductCacheRebuildPlannerTest {
     @Test
     @DisplayName("command 가 null 이면 전체 상품 ID 기준 재빌드 요청을 반환한다")
     void plan_whenCommandIsNull_thenReturnAllIdsRequest() {
+        when(productReadPort.countAll()).thenReturn(2L);
         when(productReadPort.findAllIds()).thenReturn(List.of(1L, 2L));
 
         RebuildRequest actual = productCacheRebuildPlanner.plan(null);
@@ -39,12 +40,14 @@ class ProductCacheRebuildPlannerTest {
         assertThat(actual.chunkSize()).isEqualTo(500);
         assertThat(actual.filterSummary()).isEqualTo("ALL");
 
+        verify(productReadPort).countAll();
         verify(productReadPort).findAllIds();
     }
 
     @Test
     @DisplayName("productIds 가 비어있으면 전체 상품 ID 기준 재빌드 요청을 반환한다")
     void plan_whenProductIdsEmpty_thenReturnAllIdsRequest() {
+        when(productReadPort.countAll()).thenReturn(2L);
         when(productReadPort.findAllIds()).thenReturn(List.of(10L, 20L));
 
         RebuildRequest actual = productCacheRebuildPlanner.plan(new ProductCacheRebuildCommand(List.of()));
@@ -53,7 +56,20 @@ class ProductCacheRebuildPlannerTest {
         assertThat(actual.chunkSize()).isEqualTo(500);
         assertThat(actual.filterSummary()).isEqualTo("ALL");
 
+        verify(productReadPort).countAll();
         verify(productReadPort).findAllIds();
+    }
+
+    @Test
+    @DisplayName("all rebuild checks count before loading ids")
+    void plan_whenAllTargetCountExceedsLimit_thenThrowExceptionWithoutLoadingIds() {
+        when(productReadPort.countAll()).thenReturn(30_001L);
+
+        assertThatThrownBy(() -> productCacheRebuildPlanner.plan(null))
+                .isInstanceOf(ProductException.class);
+
+        verify(productReadPort).countAll();
+        verify(productReadPort, never()).findAllIds();
     }
 
     @Test
