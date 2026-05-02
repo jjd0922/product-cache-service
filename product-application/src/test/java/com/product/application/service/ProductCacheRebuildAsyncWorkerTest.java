@@ -1,6 +1,7 @@
 package com.product.application.service;
 
 import com.product.application.cache.RebuildRequest;
+import com.product.application.port.out.ProductCacheMetricsPort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.RebuildJobStore;
 import com.product.domain.product.model.Product;
@@ -31,6 +32,9 @@ class ProductCacheRebuildAsyncWorkerTest {
 
     @Mock
     private RebuildJobStore rebuildJobStore;
+
+    @Mock
+    private ProductCacheMetricsPort productCacheMetricsPort;
 
     @InjectMocks
     private ProductCacheRebuildAsyncWorker productCacheRebuildAsyncWorker;
