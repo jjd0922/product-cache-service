@@ -46,18 +46,20 @@ public class ProductCacheRebuildService implements ProductCacheAdminUseCase {
                         "존재하지 않는 jobId 입니다. jobId=" + jobId
                 ));
 
+        RebuildJob.Snapshot snapshot = job.snapshot();
+
         return new RebuildJobResult(
-                job.getJobId(),
-                job.getStatus().name(),
-                job.getTotal(),
-                job.getProcessed(),
-                job.getProgressPercent(),
-                job.isActive(),
-                job.getMessage(),
-                job.getFailureReason(),
-                job.getFilterSummary(),
-                job.getStartedAt(),
-                job.getFinishedAt()
+                snapshot.jobId(),
+                snapshot.status().name(),
+                snapshot.total(),
+                snapshot.processed(),
+                snapshot.progressPercent(),
+                snapshot.active(),
+                snapshot.message(),
+                snapshot.failureReason(),
+                snapshot.filterSummary(),
+                snapshot.startedAt(),
+                snapshot.finishedAt()
         );
     }
 

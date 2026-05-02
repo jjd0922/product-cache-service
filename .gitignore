@@ -8,6 +8,7 @@ $RECYCLE.BIN/
 # ---- Build outputs ----
 /target/
 /build/
+**/build/
 /out/
 /bin/
 /dist/
