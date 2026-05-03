@@ -1,6 +1,7 @@
 package com.product.application.service;
 
 import com.product.application.cache.RebuildRequest;
+import com.product.application.common.failure.FailureReasonBuilder;
 import com.product.application.port.out.ProductCacheMetricsPort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.RebuildJobStore;
@@ -87,7 +88,7 @@ public class ProductCacheRebuildAsyncWorker {
             );
         } catch (Exception e) {
             productCacheMetricsPort.recordRebuildFailed();
-            String failureReason = buildFailureReason(e);
+            String failureReason = FailureReasonBuilder.from(e);
 
             log.error(
                     "Cache rebuild failed. jobId={}, failureReason={}",
@@ -170,19 +171,6 @@ public class ProductCacheRebuildAsyncWorker {
 
         rebuildJobStore.updateProgress(jobId, processed, progressMessage);
         return chunkIds.size();
-    }
-
-    private String buildFailureReason(Exception e) {
-        if (e == null) {
-            return "Unknown error";
-        }
-
-        String message = e.getMessage();
-        if (message == null || message.isBlank()) {
-            return e.getClass().getSimpleName();
-        }
-
-        return e.getClass().getSimpleName() + ": " + message;
     }
 
     private long elapsedMs(long startNs) {

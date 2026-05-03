@@ -44,6 +44,15 @@ class MicrometerProductCacheMetricsAdapterTest {
         assertThat(timerCount("product.cache.rebuild.duration")).isEqualTo(1L);
     }
 
+    @Test
+    void recordCacheEventHandled_recordsChangeTypeAndResult() {
+        adapter.recordCacheEventHandled("UPDATED", false);
+        adapter.recordCacheEventHandled("DELETED", true);
+
+        assertThat(counter("product.cache.event.handled", "changeType", "UPDATED", "result", "success")).isEqualTo(1.0);
+        assertThat(counter("product.cache.event.handled", "changeType", "DELETED", "result", "error")).isEqualTo(1.0);
+    }
+
     private double counter(String name, String... tags) {
         return meterRegistry.get(name).tags(tags).counter().count();
     }
