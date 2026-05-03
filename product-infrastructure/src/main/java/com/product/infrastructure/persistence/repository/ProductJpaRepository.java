@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -28,4 +29,7 @@ public interface ProductJpaRepository extends JpaRepository<ProductEntity, Long>
 
     @Query("select p.id from ProductEntity p order by p.id asc")
     List<Long> findAllIds();
+
+    @Query("select p.id from ProductEntity p where p.id > :lastProductId order by p.id asc")
+    List<Long> findIdsAfter(@Param("lastProductId") Long lastProductId, Pageable pageable);
 }

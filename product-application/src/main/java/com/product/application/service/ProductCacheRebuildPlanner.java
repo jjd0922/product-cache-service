@@ -26,9 +26,9 @@ public class ProductCacheRebuildPlanner {
         String filterSummary;
 
         if (command == null || command.productIds() == null || command.productIds().isEmpty()) {
-            validateTargetCount(productReadPort.countAll(), "ALL");
-            targetIds = productReadPort.findAllIds();
-            filterSummary = "ALL";
+            long totalCount = productReadPort.countAll();
+            validateTargetCount(totalCount, "ALL");
+            return RebuildRequest.allProducts(totalCount, DEFAULT_CHUNK_SIZE);
         } else {
             targetIds = normalizeIds(command.productIds());
             filterSummary = "IDS(" + targetIds.size() + ")";

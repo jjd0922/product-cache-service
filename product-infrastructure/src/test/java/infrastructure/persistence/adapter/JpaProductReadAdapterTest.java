@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
@@ -201,6 +202,28 @@ class JpaProductReadAdapterTest {
         assertThat(actual).isEqualTo(3L);
         verify(productJpaRepository).count();
         verifyNoInteractions(productEntityMapper);
+    }
+
+    @Test
+    @DisplayName("findIdsAfter returns ids after cursor")
+    void returnsIdsAfterCursor() {
+        when(productJpaRepository.findIdsAfter(10L, PageRequest.of(0, 3))).thenReturn(List.of(11L, 12L, 13L));
+
+        List<Long> actual = jpaProductReadAdapter.findIdsAfter(10L, 3);
+
+        assertThat(actual).containsExactly(11L, 12L, 13L);
+        verify(productJpaRepository).findIdsAfter(10L, PageRequest.of(0, 3));
+        verifyNoInteractions(productEntityMapper);
+    }
+
+    @Test
+    @DisplayName("findIdsAfter returns empty when cursor or limit is invalid")
+    void returnsEmptyList_whenFindIdsAfterInputIsInvalid() {
+        assertThat(jpaProductReadAdapter.findIdsAfter(null, 3)).isEmpty();
+        assertThat(jpaProductReadAdapter.findIdsAfter(-1L, 3)).isEmpty();
+        assertThat(jpaProductReadAdapter.findIdsAfter(0L, 0)).isEmpty();
+
+        verifyNoInteractions(productJpaRepository, productEntityMapper);
     }
 
     private ProductEntity productEntity(Long id, String name, String price, Integer stock, String updatedAt) {

@@ -32,32 +32,34 @@ class ProductCacheRebuildPlannerTest {
     @DisplayName("command 가 null 이면 전체 상품 ID 기준 재빌드 요청을 반환한다")
     void plan_whenCommandIsNull_thenReturnAllIdsRequest() {
         when(productReadPort.countAll()).thenReturn(2L);
-        when(productReadPort.findAllIds()).thenReturn(List.of(1L, 2L));
 
         RebuildRequest actual = productCacheRebuildPlanner.plan(null);
 
-        assertThat(actual.targetProductIds()).containsExactly(1L, 2L);
+        assertThat(actual.allProducts()).isTrue();
+        assertThat(actual.targetProductIds()).isEmpty();
+        assertThat(actual.totalCount()).isEqualTo(2L);
         assertThat(actual.chunkSize()).isEqualTo(500);
         assertThat(actual.filterSummary()).isEqualTo("ALL");
 
         verify(productReadPort).countAll();
-        verify(productReadPort).findAllIds();
+        verify(productReadPort, never()).findAllIds();
     }
 
     @Test
     @DisplayName("productIds 가 비어있으면 전체 상품 ID 기준 재빌드 요청을 반환한다")
     void plan_whenProductIdsEmpty_thenReturnAllIdsRequest() {
         when(productReadPort.countAll()).thenReturn(2L);
-        when(productReadPort.findAllIds()).thenReturn(List.of(10L, 20L));
 
         RebuildRequest actual = productCacheRebuildPlanner.plan(new ProductCacheRebuildCommand(List.of()));
 
-        assertThat(actual.targetProductIds()).containsExactly(10L, 20L);
+        assertThat(actual.allProducts()).isTrue();
+        assertThat(actual.targetProductIds()).isEmpty();
+        assertThat(actual.totalCount()).isEqualTo(2L);
         assertThat(actual.chunkSize()).isEqualTo(500);
         assertThat(actual.filterSummary()).isEqualTo("ALL");
 
         verify(productReadPort).countAll();
-        verify(productReadPort).findAllIds();
+        verify(productReadPort, never()).findAllIds();
     }
 
     @Test
@@ -80,6 +82,7 @@ class ProductCacheRebuildPlannerTest {
         );
 
         assertThat(actual.targetProductIds()).containsExactly(1L, 2L);
+        assertThat(actual.totalCount()).isEqualTo(2L);
         assertThat(actual.chunkSize()).isEqualTo(500);
         assertThat(actual.filterSummary()).isEqualTo("IDS(2)");
 
@@ -94,6 +97,7 @@ class ProductCacheRebuildPlannerTest {
         );
 
         assertThat(actual.targetProductIds()).isEmpty();
+        assertThat(actual.totalCount()).isZero();
         assertThat(actual.chunkSize()).isEqualTo(500);
         assertThat(actual.filterSummary()).isEqualTo("IDS(0)");
         assertThat(actual.isEmpty()).isTrue();

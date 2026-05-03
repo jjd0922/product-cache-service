@@ -4,7 +4,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 
 public record RebuildRequest(
+        boolean allProducts,
         List<Long> targetProductIds,
+        long totalCount,
         int chunkSize,
         String filterSummary
 ) {
@@ -12,16 +14,21 @@ public record RebuildRequest(
 
     public RebuildRequest {
         targetProductIds = normalizeIds(targetProductIds);
+        totalCount = allProducts ? Math.max(totalCount, 0L) : targetProductIds.size();
         chunkSize = chunkSize > 0 ? chunkSize : DEFAULT_CHUNK_SIZE;
         filterSummary = (filterSummary == null || filterSummary.isBlank()) ? "ALL" : filterSummary;
     }
 
-    public long totalCount() {
-        return targetProductIds.size();
+    public RebuildRequest(List<Long> targetProductIds, int chunkSize, String filterSummary) {
+        this(false, targetProductIds, 0L, chunkSize, filterSummary);
+    }
+
+    public static RebuildRequest allProducts(long totalCount, int chunkSize) {
+        return new RebuildRequest(true, List.of(), totalCount, chunkSize, "ALL");
     }
 
     public boolean isEmpty() {
-        return targetProductIds.isEmpty();
+        return totalCount <= 0;
     }
 
     private static List<Long> normalizeIds(List<Long> ids) {
