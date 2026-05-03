@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -154,6 +155,22 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("PathVariable 타입 변환 실패 시 invalid input failure 응답을 반환한다")
+    void handleMethodArgumentTypeMismatchException_thenReturnFailureResponse() throws Exception {
+        mockMvc.perform(get("/test-exceptions/jobs/not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andExpect(jsonPath("$.error.code").value(CommonErrorCode.INVALID_INPUT.getCode()))
+                .andExpect(jsonPath("$.error.message").value(CommonErrorCode.INVALID_INPUT.getMessage()))
+                .andExpect(jsonPath("$.error.details[0].field").value("jobId"))
+                .andExpect(jsonPath("$.error.details[0].reason").value("Invalid parameter type."))
+                .andExpect(jsonPath("$.error.details[0].rejectedValue").value("not-a-uuid"))
+                .andExpect(jsonPath("$.path").value("/test-exceptions/jobs/not-a-uuid"));
+    }
+
+    @Test
     @DisplayName("예상하지 못한 예외 발생 시 500 failure 응답을 반환한다")
     void handleException_thenReturnInternalServerErrorResponse() throws Exception {
         mockMvc.perform(get("/test-exceptions/unexpected"))
@@ -185,6 +202,10 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/unexpected")
         public void throwUnexpectedException() {
             throw new RuntimeException("unexpected error");
+        }
+
+        @GetMapping("/jobs/{jobId}")
+        public void getJob(@PathVariable UUID jobId) {
         }
     }
 
