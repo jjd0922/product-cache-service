@@ -185,7 +185,7 @@ class ProductJpaRepositoryTest {
 
     @Test
     @DisplayName("findAllIds 는 전체 상품 ID 를 오름차순으로 조회한다")
-    void findAllIds_returnsAllIdsInAscendingOrder() {
+    void findIdsAfter_returnsIdsAfterCursorInAscendingOrder() {
         persist(3L, "상품C", "30000.00", 0, "2026-03-20T00:00:02Z");
         persist(1L, "상품A", "10000.00", 10, "2026-03-20T00:00:00Z");
         persist(2L, "상품B", "20000.00", 5, "2026-03-20T00:00:01Z");
@@ -193,9 +193,9 @@ class ProductJpaRepositoryTest {
         entityManager.flush();
         entityManager.clear();
 
-        List<Long> actual = productJpaRepository.findAllIds();
+        List<Long> actual = productJpaRepository.findIdsAfter(1L, PageRequest.of(0, 2));
 
-        assertThat(actual).containsExactly(1L, 2L, 3L);
+        assertThat(actual).containsExactly(2L, 3L);
     }
 
     private void persist(Long id, String name, String price, Integer stock, String updatedAt) {

@@ -6,6 +6,7 @@ import com.product.infrastructure.persistence.mapper.ProductEntityMapper;
 import com.product.infrastructure.persistence.repository.ProductJpaRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -53,7 +54,11 @@ public class JpaProductReadAdapter implements ProductReadPort {
     }
 
     @Override
-    public List<Long> findAllIds() {
-        return productJpaRepository.findAllIds();
+    public List<Long> findIdsAfter(Long lastProductId, int limit) {
+        if (lastProductId == null || lastProductId < 0 || limit < 1) {
+            return List.of();
+        }
+
+        return productJpaRepository.findIdsAfter(lastProductId, PageRequest.of(0, limit));
     }
 }

@@ -33,15 +33,15 @@ public class ProductCacheRebuildAsyncWorker {
                 productCacheMetricsPort.recordRebuildFailed();
                 rebuildJobStore.markFailed(
                         jobId,
-                        "캐시 재빌드가 실패했습니다.",
-                        "RebuildRequest 가 null 입니다."
+                        "Cache rebuild failed.",
+                        "RebuildRequest must not be null"
                 );
                 return;
             }
 
             if (request.isEmpty()) {
                 productCacheMetricsPort.recordRebuildCompleted(0L, 0L, elapsedMs(totalStartNs));
-                rebuildJobStore.markSucceeded(jobId, "재빌드 대상 상품이 없습니다.");
+                rebuildJobStore.markSucceeded(jobId, "No products to rebuild.");
                 return;
             }
 
@@ -50,78 +50,37 @@ public class ProductCacheRebuildAsyncWorker {
                 productCacheMetricsPort.recordRebuildFailed();
                 rebuildJobStore.markFailed(
                         jobId,
-                        "캐시 재빌드가 실패했습니다.",
-                        "chunkSize 는 1 이상이어야 합니다. chunkSize=" + chunkSize
+                        "Cache rebuild failed.",
+                        "chunkSize must be greater than or equal to 1. chunkSize=" + chunkSize
                 );
                 return;
             }
 
-            List<Long> targetIds = request.targetProductIds();
-            int totalChunks = (targetIds.size() + chunkSize - 1) / chunkSize;
+            long totalCount = request.totalCount();
+            int totalChunks = (int) ((totalCount + chunkSize - 1) / chunkSize);
 
             rebuildJobStore.markRunning(
                     jobId,
                     String.format(
-                            "캐시 재빌드를 시작했습니다. total=%d, chunkSize=%d, chunks=%d",
-                            targetIds.size(),
+                            "Cache rebuild started. total=%d, chunkSize=%d, chunks=%d",
+                            totalCount,
                             chunkSize,
                             totalChunks
                     )
             );
 
-            long processed = 0L;
-
-            for (int start = 0, chunkNo = 1; start < targetIds.size(); start += chunkSize, chunkNo++) {
-                long chunkStartNs = System.nanoTime();
-
-                int end = Math.min(start + chunkSize, targetIds.size());
-                List<Long> chunkIds = targetIds.subList(start, end);
-
-                List<Product> products = productReadPort.findAllByIdIn(chunkIds);
-                if (!products.isEmpty()) {
-                    productCacheRefreshService.refreshAll(products);
-                }
-
-                processed += chunkIds.size();
-
-                long elapsedMs = elapsedMs(chunkStartNs);
-                int loadedCount = products.size();
-                int missingCount = Math.max(0, chunkIds.size() - loadedCount);
-
-                productCacheMetricsPort.recordRebuildChunk(chunkIds.size(), loadedCount, elapsedMs);
-
-                String progressMessage = String.format(
-                        "청크 %d/%d 처리 완료. requested=%d, loaded=%d, missing=%d, elapsedMs=%d",
-                        chunkNo,
-                        totalChunks,
-                        chunkIds.size(),
-                        loadedCount,
-                        missingCount,
-                        elapsedMs
-                );
-
-                log.info(
-                        "캐시 재빌드 청크 처리 완료. jobId={}, chunk={}/{}, requested={}, loaded={}, missing={}, elapsedMs={}",
-                        jobId,
-                        chunkNo,
-                        totalChunks,
-                        chunkIds.size(),
-                        loadedCount,
-                        missingCount,
-                        elapsedMs
-                );
-
-                rebuildJobStore.updateProgress(jobId, processed, progressMessage);
-            }
+            long processed = request.allProducts()
+                    ? rebuildAllProducts(jobId, chunkSize, totalChunks)
+                    : rebuildRequestedProducts(jobId, request.targetProductIds(), chunkSize, totalChunks);
 
             long totalElapsedMs = elapsedMs(totalStartNs);
-            productCacheMetricsPort.recordRebuildCompleted(targetIds.size(), processed, totalElapsedMs);
+            productCacheMetricsPort.recordRebuildCompleted(totalCount, processed, totalElapsedMs);
 
             rebuildJobStore.markSucceeded(
                     jobId,
                     String.format(
-                            "캐시 재빌드가 완료되었습니다. total=%d, processed=%d, elapsedMs=%d",
-                            targetIds.size(),
+                            "Cache rebuild completed. total=%d, processed=%d, elapsedMs=%d",
+                            totalCount,
                             processed,
                             totalElapsedMs
                     )
@@ -131,7 +90,7 @@ public class ProductCacheRebuildAsyncWorker {
             String failureReason = buildFailureReason(e);
 
             log.error(
-                    "캐시 재빌드 실패. jobId={}, failureReason={}",
+                    "Cache rebuild failed. jobId={}, failureReason={}",
                     jobId,
                     failureReason,
                     e
@@ -139,10 +98,78 @@ public class ProductCacheRebuildAsyncWorker {
 
             rebuildJobStore.markFailed(
                     jobId,
-                    "캐시 재빌드가 실패했습니다.",
+                    "Cache rebuild failed.",
                     failureReason
             );
         }
+    }
+
+    private long rebuildAllProducts(UUID jobId, int chunkSize, int totalChunks) {
+        long processed = 0L;
+        long lastProductId = 0L;
+
+        for (int chunkNo = 1; ; chunkNo++) {
+            List<Long> chunkIds = productReadPort.findIdsAfter(lastProductId, chunkSize);
+            if (chunkIds.isEmpty()) {
+                return processed;
+            }
+
+            lastProductId = chunkIds.get(chunkIds.size() - 1);
+            processed += processChunk(jobId, chunkIds, chunkNo, totalChunks, processed);
+        }
+    }
+
+    private long rebuildRequestedProducts(UUID jobId, List<Long> targetIds, int chunkSize, int totalChunks) {
+        long processed = 0L;
+
+        for (int start = 0, chunkNo = 1; start < targetIds.size(); start += chunkSize, chunkNo++) {
+            int end = Math.min(start + chunkSize, targetIds.size());
+            List<Long> chunkIds = targetIds.subList(start, end);
+
+            processed += processChunk(jobId, chunkIds, chunkNo, totalChunks, processed);
+        }
+
+        return processed;
+    }
+
+    private long processChunk(UUID jobId, List<Long> chunkIds, int chunkNo, int totalChunks, long processedBeforeChunk) {
+        long chunkStartNs = System.nanoTime();
+
+        List<Product> products = productReadPort.findAllByIdIn(chunkIds);
+        if (!products.isEmpty()) {
+            productCacheRefreshService.refreshAll(products);
+        }
+
+        long processed = processedBeforeChunk + chunkIds.size();
+        long elapsedMs = elapsedMs(chunkStartNs);
+        int loadedCount = products.size();
+        int missingCount = Math.max(0, chunkIds.size() - loadedCount);
+
+        productCacheMetricsPort.recordRebuildChunk(chunkIds.size(), loadedCount, elapsedMs);
+
+        String progressMessage = String.format(
+                "Chunk %d/%d completed. requested=%d, loaded=%d, missing=%d, elapsedMs=%d",
+                chunkNo,
+                totalChunks,
+                chunkIds.size(),
+                loadedCount,
+                missingCount,
+                elapsedMs
+        );
+
+        log.info(
+                "Cache rebuild chunk completed. jobId={}, chunk={}/{}, requested={}, loaded={}, missing={}, elapsedMs={}",
+                jobId,
+                chunkNo,
+                totalChunks,
+                chunkIds.size(),
+                loadedCount,
+                missingCount,
+                elapsedMs
+        );
+
+        rebuildJobStore.updateProgress(jobId, processed, progressMessage);
+        return chunkIds.size();
     }
 
     private String buildFailureReason(Exception e) {
