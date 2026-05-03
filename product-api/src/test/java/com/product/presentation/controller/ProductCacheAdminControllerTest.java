@@ -71,7 +71,9 @@ class ProductCacheAdminControllerTest {
         ResponseEntity<ApiResponse<RebuildStartedResponse>> actual =
                 productCacheAdminController.rebuild(request);
 
-        assertThat(actual.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(actual.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(actual.getHeaders().getLocation()).hasToString("/admin/cache/products/jobs/" + jobId);
+        assertThat(actual.getHeaders().getCacheControl()).isEqualTo("no-store");
         assertThat(actual.getBody()).isNotNull();
         assertThat(actual.getBody().success()).isTrue();
         assertThat(actual.getBody().data()).isEqualTo(response);
@@ -115,7 +117,9 @@ class ProductCacheAdminControllerTest {
         ResponseEntity<ApiResponse<RebuildStartedResponse>> actual =
                 productCacheAdminController.rebuild(null);
 
-        assertThat(actual.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(actual.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(actual.getHeaders().getLocation()).hasToString("/admin/cache/products/jobs/" + jobId);
+        assertThat(actual.getHeaders().getCacheControl()).isEqualTo("no-store");
         assertThat(actual.getBody()).isNotNull();
         assertThat(actual.getBody().success()).isTrue();
         assertThat(actual.getBody().data()).isEqualTo(response);
@@ -158,6 +162,8 @@ class ProductCacheAdminControllerTest {
                 productCacheAdminController.getJob(jobId);
 
         assertThat(actual.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(actual.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(actual.getHeaders().getPragma()).isEqualTo("no-cache");
         assertThat(actual.getBody()).isNotNull();
         assertThat(actual.getBody().success()).isTrue();
         assertThat(actual.getBody().data()).isEqualTo(response);

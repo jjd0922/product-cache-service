@@ -13,6 +13,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.List;
 
@@ -84,6 +85,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest()
                 .body(ApiResponse.failure(
                         ApiErrorResponse.of(CommonErrorCode.MESSAGE_NOT_READABLE),
+                        request.getRequestURI()
+                ));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodArgumentTypeMismatchException(
+            MethodArgumentTypeMismatchException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorDetail detail = new ApiErrorDetail(
+                exception.getName(),
+                "Invalid parameter type.",
+                exception.getValue()
+        );
+
+        return ResponseEntity.badRequest()
+                .body(ApiResponse.failure(
+                        ApiErrorResponse.of(CommonErrorCode.INVALID_INPUT, List.of(detail)),
                         request.getRequestURI()
                 ));
     }
