@@ -54,11 +54,6 @@ public class JpaProductReadAdapter implements ProductReadPort {
     }
 
     @Override
-    public List<Long> findAllIds() {
-        return productJpaRepository.findAllIds();
-    }
-
-    @Override
     public List<Long> findIdsAfter(Long lastProductId, int limit) {
         if (lastProductId == null || lastProductId < 0 || limit < 1) {
             return List.of();

@@ -42,7 +42,7 @@ class ProductCacheRebuildPlannerTest {
         assertThat(actual.filterSummary()).isEqualTo("ALL");
 
         verify(productReadPort).countAll();
-        verify(productReadPort, never()).findAllIds();
+        verify(productReadPort, never()).findIdsAfter(any(), anyInt());
     }
 
     @Test
@@ -59,7 +59,7 @@ class ProductCacheRebuildPlannerTest {
         assertThat(actual.filterSummary()).isEqualTo("ALL");
 
         verify(productReadPort).countAll();
-        verify(productReadPort, never()).findAllIds();
+        verify(productReadPort, never()).findIdsAfter(any(), anyInt());
     }
 
     @Test
@@ -71,7 +71,7 @@ class ProductCacheRebuildPlannerTest {
                 .isInstanceOf(ProductException.class);
 
         verify(productReadPort).countAll();
-        verify(productReadPort, never()).findAllIds();
+        verify(productReadPort, never()).findIdsAfter(any(), anyInt());
     }
 
     @Test
@@ -86,7 +86,7 @@ class ProductCacheRebuildPlannerTest {
         assertThat(actual.chunkSize()).isEqualTo(500);
         assertThat(actual.filterSummary()).isEqualTo("IDS(2)");
 
-        verify(productReadPort, never()).findAllIds();
+        verify(productReadPort, never()).findIdsAfter(any(), anyInt());
     }
 
     @Test
@@ -102,7 +102,7 @@ class ProductCacheRebuildPlannerTest {
         assertThat(actual.filterSummary()).isEqualTo("IDS(0)");
         assertThat(actual.isEmpty()).isTrue();
 
-        verify(productReadPort, never()).findAllIds();
+        verify(productReadPort, never()).findIdsAfter(any(), anyInt());
     }
 
     @Test
@@ -115,6 +115,6 @@ class ProductCacheRebuildPlannerTest {
         assertThatThrownBy(() -> productCacheRebuildPlanner.plan(new ProductCacheRebuildCommand(ids)))
                 .isInstanceOf(ProductException.class);
 
-        verify(productReadPort, never()).findAllIds();
+        verify(productReadPort, never()).findIdsAfter(any(), anyInt());
     }
 }

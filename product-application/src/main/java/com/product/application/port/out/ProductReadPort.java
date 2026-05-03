@@ -16,7 +16,5 @@ public interface ProductReadPort {
 
     long countAll();
 
-    List<Long> findAllIds();
-
     List<Long> findIdsAfter(Long lastProductId, int limit);
 }

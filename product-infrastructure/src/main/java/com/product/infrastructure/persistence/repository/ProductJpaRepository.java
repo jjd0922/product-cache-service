@@ -27,9 +27,6 @@ public interface ProductJpaRepository extends JpaRepository<ProductEntity, Long>
 
     long countByUpdatedAtAfterAndIdBetween(Instant updatedSince, Long from, Long to);
 
-    @Query("select p.id from ProductEntity p order by p.id asc")
-    List<Long> findAllIds();
-
     @Query("select p.id from ProductEntity p where p.id > :lastProductId order by p.id asc")
     List<Long> findIdsAfter(@Param("lastProductId") Long lastProductId, Pageable pageable);
 }
