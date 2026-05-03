@@ -84,6 +84,16 @@ public class MicrometerProductCacheMetricsAdapter implements ProductCacheMetrics
         increment("product.cache.rebuild.jobs", 1L, Tags.of("result", ERROR));
     }
 
+    @Override
+    public void recordCacheEventHandled(String changeType, boolean failed) {
+        String result = failed ? ERROR : SUCCESS;
+        increment(
+                "product.cache.event.handled",
+                1L,
+                Tags.of("changeType", safeTagValue(changeType), "result", result)
+        );
+    }
+
     private void increment(String metricName, long amount, Tags tags) {
         if (amount < 1) {
             return;
@@ -103,5 +113,13 @@ public class MicrometerProductCacheMetricsAdapter implements ProductCacheMetrics
 
     private long clamp(long value, long min, long max) {
         return Math.min(Math.max(value, min), max);
+    }
+
+    private String safeTagValue(String value) {
+        if (value == null || value.isBlank()) {
+            return "unknown";
+        }
+
+        return value;
     }
 }

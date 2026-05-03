@@ -13,4 +13,6 @@ public interface ProductCacheMetricsPort {
     void recordRebuildCompleted(long totalCount, long processedCount, long elapsedMs);
 
     void recordRebuildFailed();
+
+    void recordCacheEventHandled(String changeType, boolean failed);
 }
