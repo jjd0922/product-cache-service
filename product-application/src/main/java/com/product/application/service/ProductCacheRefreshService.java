@@ -5,6 +5,7 @@ import com.product.application.dto.result.ProductResult;
 import com.product.application.factory.ProductResultFactory;
 import com.product.application.factory.ProductRuntimeCacheFactory;
 import com.product.application.port.out.ProductDetailCachePort;
+import com.product.application.port.out.ProductNotFoundCachePort;
 import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class ProductCacheRefreshService {
 
     private final ProductDetailCachePort productDetailCachePort;
     private final ProductRuntimeCachePort productRuntimeCachePort;
+    private final ProductNotFoundCachePort productNotFoundCachePort;
     private final ProductResultFactory productResultFactory;
     private final ProductRuntimeCacheFactory productRuntimeCacheFactory;
 
@@ -31,6 +33,8 @@ public class ProductCacheRefreshService {
 
         ProductResult detail = toDetail(product);
         ProductRuntimeCacheData runtime = toRuntime(product);
+
+        productNotFoundCachePort.evict(product.getId());
 
         if (detail != null) {
             productDetailCachePort.put(detail);
@@ -66,6 +70,8 @@ public class ProductCacheRefreshService {
             }
         }
 
+        productNotFoundCachePort.evictAll(validProductIds(products));
+
         if (!detailResults.isEmpty()) {
             productDetailCachePort.putAll(detailResults);
         }
@@ -82,6 +88,7 @@ public class ProductCacheRefreshService {
 
         productDetailCachePort.evict(productId);
         productRuntimeCachePort.evict(productId);
+        productNotFoundCachePort.evict(productId);
     }
 
     public void evictAll(Collection<Long> productIds) {
@@ -92,6 +99,17 @@ public class ProductCacheRefreshService {
 
         productDetailCachePort.evictAll(validIds);
         productRuntimeCachePort.evictAll(validIds);
+        productNotFoundCachePort.evictAll(validIds);
+    }
+
+    private List<Long> validProductIds(Collection<Product> products) {
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        for (Product product : products) {
+            if (isValidProduct(product)) {
+                ids.add(product.getId());
+            }
+        }
+        return new ArrayList<>(ids);
     }
 
     private ProductResult toDetail(Product product) {

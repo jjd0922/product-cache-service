@@ -8,6 +8,7 @@ import com.product.application.port.out.ProductCacheMetricsPort;
 import com.product.application.port.out.ProductCacheSingleFlightLock;
 import com.product.application.port.out.ProductCacheSingleFlightLockPort;
 import com.product.application.port.out.ProductDetailCachePort;
+import com.product.application.port.out.ProductNotFoundCachePort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
@@ -27,6 +28,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,6 +55,9 @@ class ProductCacheQueryServiceTest {
     private ProductRuntimeCachePort productRuntimeCachePort;
 
     @Mock
+    private ProductNotFoundCachePort productNotFoundCachePort;
+
+    @Mock
     private ProductCacheMetricsPort productCacheMetricsPort;
 
     @Mock
@@ -74,6 +79,8 @@ class ProductCacheQueryServiceTest {
     void setUp() {
         lenient().when(productCacheSingleFlightLockPort.tryLock(anyLong()))
                 .thenReturn(Optional.of(productCacheSingleFlightLock));
+        lenient().when(productNotFoundCachePort.getAll(anyCollection()))
+                .thenReturn(Set.of());
     }
 
     @Test
@@ -87,6 +94,7 @@ class ProductCacheQueryServiceTest {
                 productReadPort,
                 productDetailCachePort,
                 productRuntimeCachePort,
+                productNotFoundCachePort,
                 productCacheMetricsPort,
                 productCacheSingleFlightLockPort,
                 productResultFactory,
@@ -324,6 +332,32 @@ class ProductCacheQueryServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 상품은 첫 DB fallback 이후 not-found cache 로 보호한다")
+    void getProduct_whenProductDoesNotExist_thenStoreNotFoundMarkerAndSkipDbOnMarkerHit() {
+        Long productId = 404L;
+
+        when(productDetailCachePort.getAll(List.of(productId))).thenReturn(Map.of());
+        when(productRuntimeCachePort.getAll(List.of(productId))).thenReturn(Map.of());
+        when(productReadPort.findAllByIdIn(List.of(productId))).thenReturn(List.of());
+
+        Optional<ProductResult> first = productCacheQueryService.getProduct(productId);
+
+        assertThat(first).isEmpty();
+        verify(productReadPort).findAllByIdIn(List.of(productId));
+        verify(productNotFoundCachePort).put(productId);
+
+        clearInvocations(productReadPort, productDetailCachePort, productRuntimeCachePort, productNotFoundCachePort);
+        when(productNotFoundCachePort.getAll(anyCollection())).thenReturn(Set.of(productId));
+
+        Optional<ProductResult> second = productCacheQueryService.getProduct(productId);
+
+        assertThat(second).isEmpty();
+        verify(productNotFoundCachePort).getAll(List.of(productId));
+        verifyNoInteractions(productReadPort, productDetailCachePort, productRuntimeCachePort);
+        verify(productCacheMetricsPort, atLeastOnce()).recordNotFoundCacheHit(1L);
+    }
+
+    @Test
     @DisplayName("DB fallback 후 detail cache 재적재 실패가 나도 결과는 반환하고 runtime cache 재적재는 계속 수행한다")
     void getProducts_whenDetailCachePutFails_thenStillReturnResults() {
         Long productId = 1L;
@@ -368,6 +402,7 @@ class ProductCacheQueryServiceTest {
                 productReadPort,
                 productDetailCachePort,
                 productRuntimeCachePort,
+                productNotFoundCachePort,
                 productCacheMetricsPort,
                 productCacheSingleFlightLockPort,
                 productResultFactory,

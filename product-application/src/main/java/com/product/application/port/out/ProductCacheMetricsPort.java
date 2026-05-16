@@ -8,6 +8,8 @@ public interface ProductCacheMetricsPort {
 
     void recordDbFallback(long requestedCount, long loadedCount);
 
+    void recordNotFoundCacheHit(long hitCount);
+
     void recordRebuildChunk(long requestedCount, long loadedCount, long elapsedMs);
 
     void recordRebuildCompleted(long totalCount, long processedCount, long elapsedMs);

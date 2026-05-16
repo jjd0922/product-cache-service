@@ -53,6 +53,13 @@ class MicrometerProductCacheMetricsAdapterTest {
         assertThat(counter("product.cache.event.handled", "changeType", "DELETED", "result", "error")).isEqualTo(1.0);
     }
 
+    @Test
+    void recordNotFoundCacheHit_recordsHitCount() {
+        adapter.recordNotFoundCacheHit(3L);
+
+        assertThat(counter("product.cache.notfound.hits")).isEqualTo(3.0);
+    }
+
     private double counter(String name, String... tags) {
         return meterRegistry.get(name).tags(tags).counter().count();
     }

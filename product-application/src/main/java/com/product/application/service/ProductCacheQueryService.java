@@ -8,6 +8,7 @@ import com.product.application.port.out.ProductCacheMetricsPort;
 import com.product.application.port.out.ProductCacheSingleFlightLock;
 import com.product.application.port.out.ProductCacheSingleFlightLockPort;
 import com.product.application.port.out.ProductDetailCachePort;
+import com.product.application.port.out.ProductNotFoundCachePort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
@@ -22,6 +23,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,6 +41,7 @@ public class ProductCacheQueryService {
     private final ProductReadPort productReadPort;
     private final ProductDetailCachePort productDetailCachePort;
     private final ProductRuntimeCachePort productRuntimeCachePort;
+    private final ProductNotFoundCachePort productNotFoundCachePort;
     private final ProductCacheMetricsPort productCacheMetricsPort;
     private final ProductCacheSingleFlightLockPort productCacheSingleFlightLockPort;
     private final ProductResultFactory productResultFactory;
@@ -78,12 +81,21 @@ public class ProductCacheQueryService {
             return Map.of();
         }
 
-        Map<Long, ProductResult> detailCacheMap = safeGetDetailCacheAll(distinctIds);
-        Map<Long, ProductRuntimeCacheData> runtimeCacheMap = safeGetRuntimeCacheAll(distinctIds);
+        Set<Long> notFoundCacheHits = safeGetNotFoundCacheAll(distinctIds);
+        List<Long> lookupIds = distinctIds.stream()
+                .filter(productId -> !notFoundCacheHits.contains(productId))
+                .toList();
 
-        Map<Long, ProductResult> resultMap = merge(detailCacheMap, runtimeCacheMap, distinctIds);
+        if (lookupIds.isEmpty()) {
+            return Map.of();
+        }
 
-        List<Long> fallbackIds = distinctIds.stream()
+        Map<Long, ProductResult> detailCacheMap = safeGetDetailCacheAll(lookupIds);
+        Map<Long, ProductRuntimeCacheData> runtimeCacheMap = safeGetRuntimeCacheAll(lookupIds);
+
+        Map<Long, ProductResult> resultMap = merge(detailCacheMap, runtimeCacheMap, lookupIds);
+
+        List<Long> fallbackIds = lookupIds.stream()
                 .filter(productId -> !detailCacheMap.containsKey(productId) || !runtimeCacheMap.containsKey(productId))
                 .toList();
 
@@ -115,6 +127,10 @@ public class ProductCacheQueryService {
     }
 
     private Optional<ProductResult> loadProductWithSingleFlight(Long productId) {
+        if (isNotFoundCached(productId)) {
+            return Optional.empty();
+        }
+
         CompletableFuture<Optional<ProductResult>> current = new CompletableFuture<>();
         CompletableFuture<Optional<ProductResult>> existing = localInFlight.putIfAbsent(productId, current);
         if (existing != null) {
@@ -161,6 +177,10 @@ public class ProductCacheQueryService {
         for (int i = 0; i < LOCK_WAIT_RETRY_COUNT; i++) {
             sleepBeforeCacheRetry();
 
+            if (isNotFoundCached(productId)) {
+                return Optional.empty();
+            }
+
             Optional<ProductResult> cached = getFullyCachedProduct(productId);
             if (cached.isPresent()) {
                 return cached;
@@ -178,6 +198,10 @@ public class ProductCacheQueryService {
     }
 
     private Optional<ProductResult> loadProductFromCacheOrDb(Long productId) {
+        if (isNotFoundCached(productId)) {
+            return Optional.empty();
+        }
+
         Optional<ProductResult> cached = getFullyCachedProduct(productId);
         if (cached.isPresent()) {
             return cached;
@@ -192,6 +216,7 @@ public class ProductCacheQueryService {
 
         productCacheMetricsPort.recordDbFallback(1L, product == null ? 0L : 1L);
         if (product == null) {
+            safePutNotFoundCache(productId);
             return Optional.empty();
         }
 
@@ -213,6 +238,10 @@ public class ProductCacheQueryService {
         }
 
         return Optional.ofNullable(detail.applyRuntime(runtime));
+    }
+
+    private boolean isNotFoundCached(Long productId) {
+        return safeGetNotFoundCacheAll(List.of(productId)).contains(productId);
     }
 
     private ProductResult repopulateMissingCaches(Long productId, Product product) {
@@ -252,6 +281,29 @@ public class ProductCacheQueryService {
                 throw runtimeException;
             }
             throw e;
+        }
+    }
+
+    private Set<Long> safeGetNotFoundCacheAll(Collection<Long> productIds) {
+        try {
+            Set<Long> results = productNotFoundCachePort.getAll(productIds);
+            productCacheMetricsPort.recordNotFoundCacheHit(results.size());
+            return results;
+        } catch (RuntimeException e) {
+            log.warn(
+                    "상품 not-found cache 조회 실패. 일반 조회 흐름으로 진행. idCount={}, message={}",
+                    productIds.size(),
+                    e.getMessage()
+            );
+            return Set.of();
+        }
+    }
+
+    private void safePutNotFoundCache(Long productId) {
+        try {
+            productNotFoundCachePort.put(productId);
+        } catch (RuntimeException e) {
+            log.warn("DB fallback 결과 없음. not-found cache 저장 실패. productId={}, message={}", productId, e.getMessage());
         }
     }
 
