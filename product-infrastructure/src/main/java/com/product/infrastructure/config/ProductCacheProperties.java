@@ -28,4 +28,7 @@ public class ProductCacheProperties {
     private String rebuildActiveKey = "product:cache:rebuild:active";
     private long rebuildJobTtlSeconds = 86400;
     private long rebuildActiveTtlSeconds = 21600;
+
+    private String singleFlightLockKeyPrefix = "product:singleflight:";
+    private long singleFlightLockLeaseMillis = 3000;
 }

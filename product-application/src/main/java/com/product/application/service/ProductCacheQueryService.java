@@ -5,6 +5,8 @@ import com.product.application.dto.result.ProductResult;
 import com.product.application.factory.ProductResultFactory;
 import com.product.application.factory.ProductRuntimeCacheFactory;
 import com.product.application.port.out.ProductCacheMetricsPort;
+import com.product.application.port.out.ProductCacheSingleFlightLock;
+import com.product.application.port.out.ProductCacheSingleFlightLockPort;
 import com.product.application.port.out.ProductDetailCachePort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.ProductRuntimeCachePort;
@@ -20,6 +22,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -28,13 +33,18 @@ public class ProductCacheQueryService {
 
     private static final String DETAIL_CACHE = "detail";
     private static final String RUNTIME_CACHE = "runtime";
+    private static final int LOCK_WAIT_RETRY_COUNT = 5;
+    private static final long LOCK_WAIT_BACKOFF_MILLIS = 50L;
 
     private final ProductReadPort productReadPort;
     private final ProductDetailCachePort productDetailCachePort;
     private final ProductRuntimeCachePort productRuntimeCachePort;
     private final ProductCacheMetricsPort productCacheMetricsPort;
+    private final ProductCacheSingleFlightLockPort productCacheSingleFlightLockPort;
     private final ProductResultFactory productResultFactory;
     private final ProductRuntimeCacheFactory productRuntimeCacheFactory;
+    private final ConcurrentHashMap<Long, CompletableFuture<Optional<ProductResult>>> localInFlight =
+            new ConcurrentHashMap<>();
 
     public Optional<ProductResult> getProduct(Long productId) {
         if (!isValidProductId(productId)) {
@@ -96,52 +106,153 @@ public class ProductCacheQueryService {
                 runtimeMissCount
         );
 
-        List<Product> productsFromDb = productReadPort.findAllByIdIn(fallbackIds);
-        productCacheMetricsPort.recordDbFallback(fallbackIds.size(), productsFromDb.size());
-
-        if (productsFromDb.isEmpty()) {
-            return resultMap;
+        for (Long fallbackId : fallbackIds) {
+            loadProductWithSingleFlight(fallbackId)
+                    .ifPresent(result -> resultMap.put(fallbackId, result));
         }
-
-        List<ProductResult> detailFallbacks = new ArrayList<>(productsFromDb.size());
-        List<ProductRuntimeCacheData> runtimeFallbacks = new ArrayList<>(productsFromDb.size());
-
-        for (Product product : productsFromDb) {
-            if (!isValidProduct(product)) {
-                continue;
-            }
-
-            Long productId = product.getId();
-
-            ProductResult detail = detailCacheMap.get(productId);
-            if (detail == null) {
-                detail = productResultFactory.from(product);
-            }
-
-            if (detail == null || detail.id() == null) {
-                continue;
-            }
-
-            ProductRuntimeCacheData runtime = runtimeCacheMap.get(productId);
-            if (runtime == null) {
-                runtime = createRuntime(product);
-            }
-
-            if (!detailCacheMap.containsKey(productId)) {
-                detailFallbacks.add(detail);
-            }
-
-            if (runtime != null && !runtimeCacheMap.containsKey(productId)) {
-                runtimeFallbacks.add(runtime);
-            }
-
-            resultMap.put(productId, detail.applyRuntime(runtime));
-        }
-
-        safePutDetailCacheAll(detailFallbacks);
-        safePutRuntimeCacheAll(runtimeFallbacks);
 
         return resultMap;
+    }
+
+    private Optional<ProductResult> loadProductWithSingleFlight(Long productId) {
+        CompletableFuture<Optional<ProductResult>> current = new CompletableFuture<>();
+        CompletableFuture<Optional<ProductResult>> existing = localInFlight.putIfAbsent(productId, current);
+        if (existing != null) {
+            return join(existing);
+        }
+
+        try {
+            Optional<ProductResult> result = loadProductWithDistributedLock(productId);
+            current.complete(result);
+            return result;
+        } catch (RuntimeException e) {
+            current.completeExceptionally(e);
+            throw e;
+        } finally {
+            localInFlight.remove(productId, current);
+        }
+    }
+
+    private Optional<ProductResult> loadProductWithDistributedLock(Long productId) {
+        Optional<ProductCacheSingleFlightLock> lock;
+        try {
+            lock = productCacheSingleFlightLockPort.tryLock(productId);
+        } catch (RuntimeException e) {
+            log.warn("single-flight lock 획득 실패. DB fallback 으로 degrade. productId={}, message={}", productId, e.getMessage());
+            return loadProductFromCacheOrDb(productId);
+        }
+
+        if (lock.isPresent()) {
+            try (ProductCacheSingleFlightLock ignored = lock.get()) {
+                return loadProductFromCacheOrDb(productId);
+            }
+        }
+
+        Optional<ProductResult> cached = waitAndGetFullyCachedProduct(productId);
+        if (cached.isPresent()) {
+            return cached;
+        }
+
+        log.debug("single-flight lock 획득 실패 후 캐시 재조회 miss. DB fallback 수행. productId={}", productId);
+        return loadProductFromCacheOrDb(productId);
+    }
+
+    private Optional<ProductResult> waitAndGetFullyCachedProduct(Long productId) {
+        for (int i = 0; i < LOCK_WAIT_RETRY_COUNT; i++) {
+            sleepBeforeCacheRetry();
+
+            Optional<ProductResult> cached = getFullyCachedProduct(productId);
+            if (cached.isPresent()) {
+                return cached;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void sleepBeforeCacheRetry() {
+        try {
+            Thread.sleep(LOCK_WAIT_BACKOFF_MILLIS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private Optional<ProductResult> loadProductFromCacheOrDb(Long productId) {
+        Optional<ProductResult> cached = getFullyCachedProduct(productId);
+        if (cached.isPresent()) {
+            return cached;
+        }
+
+        List<Product> productsFromDb = productReadPort.findAllByIdIn(List.of(productId));
+        Product product = productsFromDb.stream()
+                .filter(this::isValidProduct)
+                .filter(candidate -> productId.equals(candidate.getId()))
+                .findFirst()
+                .orElse(null);
+
+        productCacheMetricsPort.recordDbFallback(1L, product == null ? 0L : 1L);
+        if (product == null) {
+            return Optional.empty();
+        }
+
+        return Optional.ofNullable(repopulateMissingCaches(productId, product));
+    }
+
+    private Optional<ProductResult> getFullyCachedProduct(Long productId) {
+        Map<Long, ProductResult> detailCacheMap = safeGetDetailCacheAll(List.of(productId));
+        Map<Long, ProductRuntimeCacheData> runtimeCacheMap = safeGetRuntimeCacheAll(List.of(productId));
+
+        if (!detailCacheMap.containsKey(productId) || !runtimeCacheMap.containsKey(productId)) {
+            return Optional.empty();
+        }
+
+        ProductResult detail = detailCacheMap.get(productId);
+        ProductRuntimeCacheData runtime = runtimeCacheMap.get(productId);
+        if (detail == null) {
+            return Optional.empty();
+        }
+
+        return Optional.ofNullable(detail.applyRuntime(runtime));
+    }
+
+    private ProductResult repopulateMissingCaches(Long productId, Product product) {
+        Map<Long, ProductResult> detailCacheMap = safeGetDetailCacheAll(List.of(productId));
+        Map<Long, ProductRuntimeCacheData> runtimeCacheMap = safeGetRuntimeCacheAll(List.of(productId));
+
+        ProductResult detail = detailCacheMap.get(productId);
+        if (detail == null) {
+            detail = productResultFactory.from(product);
+        }
+
+        if (detail == null || detail.id() == null) {
+            return null;
+        }
+
+        ProductRuntimeCacheData runtime = runtimeCacheMap.get(productId);
+        if (runtime == null) {
+            runtime = createRuntime(product);
+        }
+
+        if (!detailCacheMap.containsKey(productId)) {
+            safePutDetailCacheAll(List.of(detail));
+        }
+
+        if (runtime != null && !runtimeCacheMap.containsKey(productId)) {
+            safePutRuntimeCacheAll(List.of(runtime));
+        }
+
+        return detail.applyRuntime(runtime);
+    }
+
+    private Optional<ProductResult> join(CompletableFuture<Optional<ProductResult>> future) {
+        try {
+            return future.join();
+        } catch (CompletionException e) {
+            if (e.getCause() instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw e;
+        }
     }
 
     private Map<Long, ProductResult> merge(
