@@ -2,6 +2,7 @@ package com.product.presentation.controller;
 
 import com.product.application.dto.result.ProductResult;
 import com.product.application.port.in.ProductQueryUseCase;
+import com.product.config.SecurityConfig;
 import com.product.presentation.assembler.ProductResponseAssembler;
 import com.product.presentation.common.advice.GlobalExceptionHandler;
 import com.product.presentation.controller.ProductController;
@@ -28,7 +29,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ProductController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, SecurityConfig.class})
 class ProductControllerTest {
 
     @Autowired
