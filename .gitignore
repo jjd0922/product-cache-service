@@ -52,6 +52,7 @@ test-results/
 surefire-reports/
 failsafe-reports/
 pit-reports/
+loadtest/results/
 
 # ---- Local environment configs (commit sample files instead) ----
 .env

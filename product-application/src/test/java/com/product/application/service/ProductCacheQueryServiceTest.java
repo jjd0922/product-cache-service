@@ -20,6 +20,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -120,6 +121,37 @@ class ProductCacheQueryServiceTest {
         verify(productDetailCachePort, never()).putAll(anyCollection());
         verify(productRuntimeCachePort, never()).putAll(anyCollection());
         verifyNoInteractions(productResultFactory, productRuntimeCacheFactory);
+    }
+
+    @Test
+    @DisplayName("cache disabled 이면 cache 조회 없이 DB 만 조회한다")
+    void getProducts_whenCacheDisabled_thenReadDbOnly() {
+        Long productId = 1L;
+        Integer stock = 10;
+
+        Product product = mockProduct(productId, stock);
+        ProductResult baseResult = mockResult(productId);
+        ProductRuntimeCacheData runtime = mock(ProductRuntimeCacheData.class);
+        ProductResult mergedResult = mockResult(productId);
+
+        ReflectionTestUtils.setField(productCacheQueryService, "cacheEnabled", false);
+
+        when(productReadPort.findAllByIdIn(List.of(productId))).thenReturn(List.of(product));
+        when(productResultFactory.from(product)).thenReturn(baseResult);
+        when(productRuntimeCacheFactory.from(productId, null, stock, FIXED_UPDATED_AT)).thenReturn(runtime);
+        when(baseResult.applyRuntime(runtime)).thenReturn(mergedResult);
+
+        List<ProductResult> actual = productCacheQueryService.getProducts(List.of(productId));
+
+        assertThat(actual).containsExactly(mergedResult);
+        verify(productReadPort).findAllByIdIn(List.of(productId));
+        verify(productCacheMetricsPort).recordDbFallback(1L, 1L);
+        verifyNoInteractions(
+                productDetailCachePort,
+                productRuntimeCachePort,
+                productNotFoundCachePort,
+                productCacheSingleFlightLockPort
+        );
     }
 
     @Test
