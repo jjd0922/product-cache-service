@@ -21,7 +21,8 @@ public enum ProductErrorCode implements ErrorCode {
     INVALID_REBUILD_RANGE_ORDER("PRODUCT_CACHE_400_3", "productIdFrom은 productIdTo보다 클 수 없습니다.", 400),
     REBUILD_JOB_ALREADY_RUNNING("PRODUCT_CACHE_409_1", "이미 진행 중인 캐시 재빌드 작업이 있습니다.", 409),
     REBUILD_REQUEST_LIMIT_EXCEEDED("PRODUCT_CACHE_400_4", "재빌드 요청 제한을 초과했습니다.", 400),
-    REBUILD_JOB_NOT_FOUND("PRODUCT_CACHE_404_1", "재빌드 작업을 찾을 수 없습니다.", 404);
+    REBUILD_JOB_NOT_FOUND("PRODUCT_CACHE_404_1", "재빌드 작업을 찾을 수 없습니다.", 404),
+    EVENT_DLQ_NOT_FOUND("PRODUCT_CACHE_EVENT_404_1", "DLQ 이벤트를 찾을 수 없습니다.", 404);
 
     private final String code;
     private final String message;

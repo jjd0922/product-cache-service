@@ -2,15 +2,20 @@ package com.product.application.service;
 
 import com.product.application.cache.RebuildJob;
 import com.product.application.cache.RebuildRequest;
+import com.product.application.dto.command.ProductCacheChangedCommand;
 import com.product.application.dto.command.ProductCacheRebuildCommand;
+import com.product.application.dto.result.ProductCacheEventDlqResult;
 import com.product.application.dto.result.RebuildJobResult;
 import com.product.application.port.in.ProductCacheAdminUseCase;
+import com.product.application.port.in.ProductCacheEventUseCase;
+import com.product.application.port.out.ProductCacheEventDlqPort;
 import com.product.application.port.out.RebuildJobStore;
 import com.product.domain.product.exception.ProductErrorCode;
 import com.product.domain.product.exception.ProductException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -20,6 +25,8 @@ public class ProductCacheRebuildService implements ProductCacheAdminUseCase {
     private final ProductCacheRebuildPlanner productCacheRebuildPlanner;
     private final ProductCacheRebuildAsyncWorker productCacheRebuildAsyncWorker;
     private final RebuildJobStore rebuildJobStore;
+    private final ProductCacheEventDlqPort productCacheEventDlqPort;
+    private final ProductCacheEventUseCase productCacheEventUseCase;
 
     @Override
     public RebuildJobResult rebuild(ProductCacheRebuildCommand command) {
@@ -61,6 +68,24 @@ public class ProductCacheRebuildService implements ProductCacheAdminUseCase {
                 snapshot.startedAt(),
                 snapshot.finishedAt()
         );
+    }
+
+    @Override
+    public List<ProductCacheEventDlqResult> getEventDlq(int limit) {
+        return productCacheEventDlqPort.findAll(limit);
+    }
+
+    @Override
+    public ProductCacheEventDlqResult reprocessEventDlq(String eventId) {
+        ProductCacheEventDlqResult event = productCacheEventDlqPort.find(eventId)
+                .orElseThrow(() -> new ProductException(
+                        ProductErrorCode.EVENT_DLQ_NOT_FOUND,
+                        "존재하지 않는 DLQ 이벤트입니다. eventId=" + eventId
+                ));
+
+        productCacheEventUseCase.handle(new ProductCacheChangedCommand(event.productId(), event.changeType()));
+        productCacheEventDlqPort.delete(event.eventId());
+        return event;
     }
 
     private void validateNoActiveJob() {

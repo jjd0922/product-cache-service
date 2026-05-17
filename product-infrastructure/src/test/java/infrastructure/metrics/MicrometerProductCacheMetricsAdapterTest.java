@@ -67,6 +67,15 @@ class MicrometerProductCacheMetricsAdapterTest {
         assertThat(counter("product.cache.fallback.rejected")).isEqualTo(4.0);
     }
 
+    @Test
+    void recordCacheEventRetryAndDlq_recordsEventOperationalMetrics() {
+        adapter.recordCacheEventRetry("UPDATED");
+        adapter.recordCacheEventDlq("DELETED");
+
+        assertThat(counter("product.cache.event.retry", "changeType", "UPDATED")).isEqualTo(1.0);
+        assertThat(counter("product.cache.event.dlq", "changeType", "DELETED")).isEqualTo(1.0);
+    }
+
     private double counter(String name, String... tags) {
         return meterRegistry.get(name).tags(tags).counter().count();
     }

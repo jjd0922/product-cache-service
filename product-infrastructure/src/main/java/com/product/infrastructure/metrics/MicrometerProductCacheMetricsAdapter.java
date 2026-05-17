@@ -104,6 +104,16 @@ public class MicrometerProductCacheMetricsAdapter implements ProductCacheMetrics
         );
     }
 
+    @Override
+    public void recordCacheEventRetry(String changeType) {
+        increment("product.cache.event.retry", 1L, Tags.of("changeType", safeTagValue(changeType)));
+    }
+
+    @Override
+    public void recordCacheEventDlq(String changeType) {
+        increment("product.cache.event.dlq", 1L, Tags.of("changeType", safeTagValue(changeType)));
+    }
+
     private void increment(String metricName, long amount, Tags tags) {
         if (amount < 1) {
             return;
