@@ -6,14 +6,18 @@ import com.product.application.port.out.ProductCacheMetricsPort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.RebuildJobStore;
 import com.product.domain.product.model.Product;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -24,6 +28,9 @@ public class ProductCacheRebuildAsyncWorker {
     private final ProductCacheRefreshService productCacheRefreshService;
     private final RebuildJobStore rebuildJobStore;
     private final ProductCacheMetricsPort productCacheMetricsPort;
+
+    @Autowired(required = false)
+    private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
 
     @Async
     public void rebuild(UUID jobId, RebuildRequest request) {
@@ -134,6 +141,25 @@ public class ProductCacheRebuildAsyncWorker {
     }
 
     private long processChunk(UUID jobId, List<Long> chunkIds, int chunkNo, int totalChunks, long processedBeforeChunk) {
+        return observe(
+                "rebuild.chunk",
+                () -> processChunkInternal(jobId, chunkIds, chunkNo, totalChunks, processedBeforeChunk),
+                "chunk.no",
+                String.valueOf(chunkNo),
+                "chunk.total",
+                String.valueOf(totalChunks),
+                "requested.count",
+                String.valueOf(chunkIds.size())
+        );
+    }
+
+    private long processChunkInternal(
+            UUID jobId,
+            List<Long> chunkIds,
+            int chunkNo,
+            int totalChunks,
+            long processedBeforeChunk
+    ) {
         long chunkStartNs = System.nanoTime();
 
         List<Product> products = productReadPort.findAllByIdIn(chunkIds);
@@ -175,5 +201,13 @@ public class ProductCacheRebuildAsyncWorker {
 
     private long elapsedMs(long startNs) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNs);
+    }
+
+    private <T> T observe(String name, Supplier<T> supplier, String... lowCardinalityKeyValues) {
+        Observation observation = Observation.createNotStarted(name, observationRegistry);
+        for (int i = 0; i + 1 < lowCardinalityKeyValues.length; i += 2) {
+            observation.lowCardinalityKeyValue(lowCardinalityKeyValues[i], lowCardinalityKeyValues[i + 1]);
+        }
+        return observation.observe(supplier);
     }
 }

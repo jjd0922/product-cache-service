@@ -16,8 +16,11 @@ import com.product.domain.product.model.Product;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadConfig;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -64,6 +68,9 @@ public class ProductCacheQueryService {
 
     @Value("${product.cache.fallback.max-wait-millis:0}")
     private long dbFallbackMaxWaitMillis = 0L;
+
+    @Autowired(required = false)
+    private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
 
     public Optional<ProductResult> getProduct(Long productId) {
         if (!isValidProductId(productId)) {
@@ -265,7 +272,12 @@ public class ProductCacheQueryService {
 
     private List<Product> findProductsWithDbFallbackBulkhead(List<Long> productIds) {
         try {
-            return getDbFallbackBulkhead().executeSupplier(() -> productReadPort.findAllByIdIn(productIds));
+            return observe(
+                    "db.fallback",
+                    () -> getDbFallbackBulkhead().executeSupplier(() -> productReadPort.findAllByIdIn(productIds)),
+                    "requested.count",
+                    String.valueOf(productIds.size())
+            );
         } catch (BulkheadFullException e) {
             productCacheMetricsPort.recordDbFallbackRejected(productIds.size());
             log.warn(
@@ -409,35 +421,39 @@ public class ProductCacheQueryService {
     }
 
     private Map<Long, ProductResult> safeGetDetailCacheAll(Collection<Long> productIds) {
-        try {
-            Map<Long, ProductResult> results = productDetailCachePort.getAll(productIds);
-            productCacheMetricsPort.recordCacheRead(DETAIL_CACHE, productIds.size(), results.size(), false);
-            return results;
-        } catch (RuntimeException e) {
-            productCacheMetricsPort.recordCacheRead(DETAIL_CACHE, productIds.size(), 0L, true);
-            log.warn(
-                    "상품 detail cache 일괄 조회 실패. DB fallback 예정. idCount={}, message={}",
-                    productIds.size(),
-                    e.getMessage()
-            );
-            return Map.of();
-        }
+        return observe("cache.read.detail", () -> {
+            try {
+                Map<Long, ProductResult> results = productDetailCachePort.getAll(productIds);
+                productCacheMetricsPort.recordCacheRead(DETAIL_CACHE, productIds.size(), results.size(), false);
+                return results;
+            } catch (RuntimeException e) {
+                productCacheMetricsPort.recordCacheRead(DETAIL_CACHE, productIds.size(), 0L, true);
+                log.warn(
+                        "상품 detail cache 일괄 조회 실패. DB fallback 예정. idCount={}, message={}",
+                        productIds.size(),
+                        e.getMessage()
+                );
+                return Map.of();
+            }
+        }, "requested.count", String.valueOf(productIds.size()));
     }
 
     private Map<Long, ProductRuntimeCacheData> safeGetRuntimeCacheAll(Collection<Long> productIds) {
-        try {
-            Map<Long, ProductRuntimeCacheData> results = productRuntimeCachePort.getAll(productIds);
-            productCacheMetricsPort.recordCacheRead(RUNTIME_CACHE, productIds.size(), results.size(), false);
-            return results;
-        } catch (RuntimeException e) {
-            productCacheMetricsPort.recordCacheRead(RUNTIME_CACHE, productIds.size(), 0L, true);
-            log.warn(
-                    "상품 runtime cache 일괄 조회 실패. runtime cache 없이 진행. idCount={}, message={}",
-                    productIds.size(),
-                    e.getMessage()
-            );
-            return Map.of();
-        }
+        return observe("cache.read.runtime", () -> {
+            try {
+                Map<Long, ProductRuntimeCacheData> results = productRuntimeCachePort.getAll(productIds);
+                productCacheMetricsPort.recordCacheRead(RUNTIME_CACHE, productIds.size(), results.size(), false);
+                return results;
+            } catch (RuntimeException e) {
+                productCacheMetricsPort.recordCacheRead(RUNTIME_CACHE, productIds.size(), 0L, true);
+                log.warn(
+                        "상품 runtime cache 일괄 조회 실패. runtime cache 없이 진행. idCount={}, message={}",
+                        productIds.size(),
+                        e.getMessage()
+                );
+                return Map.of();
+            }
+        }, "requested.count", String.valueOf(productIds.size()));
     }
 
     private void safePutDetailCacheAll(Collection<ProductResult> products) {
@@ -445,17 +461,20 @@ public class ProductCacheQueryService {
             return;
         }
 
-        try {
-            productDetailCachePort.putAll(products);
-            productCacheMetricsPort.recordCacheWrite(DETAIL_CACHE, products.size(), false);
-        } catch (RuntimeException e) {
-            productCacheMetricsPort.recordCacheWrite(DETAIL_CACHE, products.size(), true);
-            log.warn(
-                    "DB fallback 이후 상품 detail cache 일괄 재적재 실패. count={}, message={}",
-                    products.size(),
-                    e.getMessage()
-            );
-        }
+        observe("cache.write", () -> {
+            try {
+                productDetailCachePort.putAll(products);
+                productCacheMetricsPort.recordCacheWrite(DETAIL_CACHE, products.size(), false);
+            } catch (RuntimeException e) {
+                productCacheMetricsPort.recordCacheWrite(DETAIL_CACHE, products.size(), true);
+                log.warn(
+                        "DB fallback 이후 상품 detail cache 일괄 재적재 실패. count={}, message={}",
+                        products.size(),
+                        e.getMessage()
+                );
+            }
+            return null;
+        }, "cache", DETAIL_CACHE, "item.count", String.valueOf(products.size()));
     }
 
     private void safePutRuntimeCacheAll(Collection<ProductRuntimeCacheData> runtimeDataList) {
@@ -463,17 +482,28 @@ public class ProductCacheQueryService {
             return;
         }
 
-        try {
-            productRuntimeCachePort.putAll(runtimeDataList);
-            productCacheMetricsPort.recordCacheWrite(RUNTIME_CACHE, runtimeDataList.size(), false);
-        } catch (RuntimeException e) {
-            productCacheMetricsPort.recordCacheWrite(RUNTIME_CACHE, runtimeDataList.size(), true);
-            log.warn(
-                    "DB fallback 이후 상품 runtime cache 일괄 재적재 실패. count={}, message={}",
-                    runtimeDataList.size(),
-                    e.getMessage()
-            );
+        observe("cache.write", () -> {
+            try {
+                productRuntimeCachePort.putAll(runtimeDataList);
+                productCacheMetricsPort.recordCacheWrite(RUNTIME_CACHE, runtimeDataList.size(), false);
+            } catch (RuntimeException e) {
+                productCacheMetricsPort.recordCacheWrite(RUNTIME_CACHE, runtimeDataList.size(), true);
+                log.warn(
+                        "DB fallback 이후 상품 runtime cache 일괄 재적재 실패. count={}, message={}",
+                        runtimeDataList.size(),
+                        e.getMessage()
+                );
+            }
+            return null;
+        }, "cache", RUNTIME_CACHE, "item.count", String.valueOf(runtimeDataList.size()));
+    }
+
+    private <T> T observe(String name, Supplier<T> supplier, String... lowCardinalityKeyValues) {
+        Observation observation = Observation.createNotStarted(name, observationRegistry);
+        for (int i = 0; i + 1 < lowCardinalityKeyValues.length; i += 2) {
+            observation.lowCardinalityKeyValue(lowCardinalityKeyValues[i], lowCardinalityKeyValues[i + 1]);
         }
+        return observation.observe(supplier);
     }
 
     private List<Long> normalizeIds(Collection<Long> productIds) {

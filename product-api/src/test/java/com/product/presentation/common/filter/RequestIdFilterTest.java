@@ -1,18 +1,30 @@
 package com.product.presentation.common.filter;
 
 import jakarta.servlet.FilterChain;
+import io.micrometer.tracing.BaggageInScope;
+import io.micrometer.tracing.Tracer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.*;
 
 class RequestIdFilterTest {
 
-    private final RequestIdFilter filter = new RequestIdFilter();
+    private Tracer tracer;
+    private BaggageInScope baggageInScope;
+    private RequestIdFilter filter;
+
+    @BeforeEach
+    void setUp() {
+        tracer = mock(Tracer.class);
+        baggageInScope = mock(BaggageInScope.class);
+        when(tracer.createBaggageInScope(anyString(), anyString())).thenReturn(baggageInScope);
+        filter = new RequestIdFilter(tracer);
+    }
 
     @Test
     void doFilterInternal_whenRequestIdHeaderExists_thenPropagateHeader() throws Exception {
@@ -25,6 +37,8 @@ class RequestIdFilterTest {
 
         assertThat(response.getHeader(RequestIdFilter.REQUEST_ID_HEADER)).isEqualTo("request-123");
         assertThat(MDC.get(RequestIdFilter.MDC_KEY)).isNull();
+        verify(tracer).createBaggageInScope(RequestIdFilter.MDC_KEY, "request-123");
+        verify(baggageInScope).close();
         verify(filterChain).doFilter(request, response);
     }
 

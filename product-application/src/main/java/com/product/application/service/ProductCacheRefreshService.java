@@ -8,13 +8,17 @@ import com.product.application.port.out.ProductDetailCachePort;
 import com.product.application.port.out.ProductNotFoundCachePort;
 import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +30,9 @@ public class ProductCacheRefreshService {
     private final ProductResultFactory productResultFactory;
     private final ProductRuntimeCacheFactory productRuntimeCacheFactory;
 
+    @Autowired(required = false)
+    private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
+
     public void refresh(Product product) {
         if (!isValidProduct(product)) {
             return;
@@ -34,14 +41,23 @@ public class ProductCacheRefreshService {
         ProductResult detail = toDetail(product);
         ProductRuntimeCacheData runtime = toRuntime(product);
 
-        productNotFoundCachePort.evict(product.getId());
+        observe("cache.write", () -> {
+            productNotFoundCachePort.evict(product.getId());
+            return null;
+        }, "cache", "notfound", "operation", "evict", "item.count", "1");
 
         if (detail != null) {
-            productDetailCachePort.put(detail);
+            observe("cache.write", () -> {
+                productDetailCachePort.put(detail);
+                return null;
+            }, "cache", "detail", "operation", "put", "item.count", "1");
         }
 
         if (runtime != null) {
-            productRuntimeCachePort.put(runtime);
+            observe("cache.write", () -> {
+                productRuntimeCachePort.put(runtime);
+                return null;
+            }, "cache", "runtime", "operation", "put", "item.count", "1");
         }
     }
 
@@ -70,14 +86,24 @@ public class ProductCacheRefreshService {
             }
         }
 
-        productNotFoundCachePort.evictAll(validProductIds(products));
+        List<Long> validProductIds = validProductIds(products);
+        observe("cache.write", () -> {
+            productNotFoundCachePort.evictAll(validProductIds);
+            return null;
+        }, "cache", "notfound", "operation", "evictAll", "item.count", String.valueOf(validProductIds.size()));
 
         if (!detailResults.isEmpty()) {
-            productDetailCachePort.putAll(detailResults);
+            observe("cache.write", () -> {
+                productDetailCachePort.putAll(detailResults);
+                return null;
+            }, "cache", "detail", "operation", "putAll", "item.count", String.valueOf(detailResults.size()));
         }
 
         if (!runtimeResults.isEmpty()) {
-            productRuntimeCachePort.putAll(runtimeResults);
+            observe("cache.write", () -> {
+                productRuntimeCachePort.putAll(runtimeResults);
+                return null;
+            }, "cache", "runtime", "operation", "putAll", "item.count", String.valueOf(runtimeResults.size()));
         }
     }
 
@@ -86,9 +112,12 @@ public class ProductCacheRefreshService {
             return;
         }
 
-        productDetailCachePort.evict(productId);
-        productRuntimeCachePort.evict(productId);
-        productNotFoundCachePort.evict(productId);
+        observe("cache.write", () -> {
+            productDetailCachePort.evict(productId);
+            productRuntimeCachePort.evict(productId);
+            productNotFoundCachePort.evict(productId);
+            return null;
+        }, "operation", "evict", "item.count", "1");
     }
 
     public void evictAll(Collection<Long> productIds) {
@@ -97,9 +126,12 @@ public class ProductCacheRefreshService {
             return;
         }
 
-        productDetailCachePort.evictAll(validIds);
-        productRuntimeCachePort.evictAll(validIds);
-        productNotFoundCachePort.evictAll(validIds);
+        observe("cache.write", () -> {
+            productDetailCachePort.evictAll(validIds);
+            productRuntimeCachePort.evictAll(validIds);
+            productNotFoundCachePort.evictAll(validIds);
+            return null;
+        }, "operation", "evictAll", "item.count", String.valueOf(validIds.size()));
     }
 
     private List<Long> validProductIds(Collection<Product> products) {
@@ -145,5 +177,13 @@ public class ProductCacheRefreshService {
 
     private boolean isValidProductId(Long productId) {
         return productId != null && productId > 0;
+    }
+
+    private <T> T observe(String name, Supplier<T> supplier, String... lowCardinalityKeyValues) {
+        Observation observation = Observation.createNotStarted(name, observationRegistry);
+        for (int i = 0; i + 1 < lowCardinalityKeyValues.length; i += 2) {
+            observation.lowCardinalityKeyValue(lowCardinalityKeyValues[i], lowCardinalityKeyValues[i + 1]);
+        }
+        return observation.observe(supplier);
     }
 }
