@@ -37,6 +37,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
@@ -361,6 +362,56 @@ class ProductCacheQueryServiceTest {
 
         assertThat(actual).contains(mergedResult);
         verify(productReadPort).findAllByIdIn(List.of(productId));
+    }
+
+    @Test
+    @DisplayName("DB fallback 동시 호출 수가 bulkhead 한도를 넘으면 요청을 거절하고 메트릭을 기록한다")
+    void getProduct_whenDbFallbackBulkheadIsFull_thenRejectFallbackAndRecordMetric() throws Exception {
+        Long firstProductId = 1L;
+        Long rejectedProductId = 2L;
+        Integer stock = 10;
+
+        Product product = mockProduct(firstProductId, stock);
+        ProductResult baseResult = mockResult(firstProductId);
+        ProductRuntimeCacheData runtime = mock(ProductRuntimeCacheData.class);
+        ProductResult mergedResult = mockResult(firstProductId);
+        CountDownLatch dbFallbackStarted = new CountDownLatch(1);
+        CountDownLatch releaseDbFallback = new CountDownLatch(1);
+
+        ReflectionTestUtils.setField(productCacheQueryService, "dbFallbackMaxConcurrentCalls", 1);
+        ReflectionTestUtils.setField(productCacheQueryService, "dbFallbackMaxWaitMillis", 0L);
+        ReflectionTestUtils.setField(productCacheQueryService, "dbFallbackBulkhead", null);
+
+        when(productDetailCachePort.getAll(anyCollection())).thenReturn(Map.of());
+        when(productRuntimeCachePort.getAll(anyCollection())).thenReturn(Map.of());
+        when(productReadPort.findAllByIdIn(List.of(firstProductId))).thenAnswer(invocation -> {
+            dbFallbackStarted.countDown();
+            assertThat(releaseDbFallback.await(1, TimeUnit.SECONDS)).isTrue();
+            return List.of(product);
+        });
+        when(productResultFactory.from(product)).thenReturn(baseResult);
+        when(productRuntimeCacheFactory.from(firstProductId, null, stock, FIXED_UPDATED_AT)).thenReturn(runtime);
+        when(baseResult.applyRuntime(runtime)).thenReturn(mergedResult);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Optional<ProductResult>> first = executor.submit(() -> productCacheQueryService.getProduct(firstProductId));
+            assertThat(dbFallbackStarted.await(1, TimeUnit.SECONDS)).isTrue();
+
+            Future<Optional<ProductResult>> rejected = executor.submit(() -> productCacheQueryService.getProduct(rejectedProductId));
+
+            assertThatThrownBy(() -> rejected.get(1, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(com.product.application.common.exception.DbFallbackRejectedException.class);
+
+            releaseDbFallback.countDown();
+            assertThat(first.get(1, TimeUnit.SECONDS)).contains(mergedResult);
+        } finally {
+            releaseDbFallback.countDown();
+            executor.shutdownNow();
+        }
+
+        verify(productReadPort, never()).findAllByIdIn(List.of(rejectedProductId));
+        verify(productCacheMetricsPort).recordDbFallbackRejected(1L);
     }
 
     @Test

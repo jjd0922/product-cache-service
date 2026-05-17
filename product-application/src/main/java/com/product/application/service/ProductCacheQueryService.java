@@ -1,5 +1,6 @@
 package com.product.application.service;
 
+import com.product.application.common.exception.DbFallbackRejectedException;
 import com.product.application.dto.cache.ProductRuntimeCacheData;
 import com.product.application.dto.result.ProductResult;
 import com.product.application.factory.ProductResultFactory;
@@ -12,11 +13,15 @@ import com.product.application.port.out.ProductNotFoundCachePort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadConfig;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -49,9 +54,16 @@ public class ProductCacheQueryService {
     private final ProductRuntimeCacheFactory productRuntimeCacheFactory;
     private final ConcurrentHashMap<Long, CompletableFuture<Optional<ProductResult>>> localInFlight =
             new ConcurrentHashMap<>();
+    private volatile Bulkhead dbFallbackBulkhead;
 
     @Value("${product.cache.enabled:true}")
     private boolean cacheEnabled = true;
+
+    @Value("${product.cache.fallback.max-concurrent:20}")
+    private int dbFallbackMaxConcurrentCalls = 20;
+
+    @Value("${product.cache.fallback.max-wait-millis:0}")
+    private long dbFallbackMaxWaitMillis = 0L;
 
     public Optional<ProductResult> getProduct(Long productId) {
         if (!isValidProductId(productId)) {
@@ -135,7 +147,7 @@ public class ProductCacheQueryService {
     }
 
     private Map<Long, ProductResult> getProductsFromDbOnly(List<Long> productIds) {
-        List<Product> productsFromDb = productReadPort.findAllByIdIn(productIds);
+        List<Product> productsFromDb = findProductsWithDbFallbackBulkhead(productIds);
         productCacheMetricsPort.recordDbFallback(productIds.size(), productsFromDb.size());
 
         Map<Long, ProductResult> resultMap = new LinkedHashMap<>();
@@ -235,7 +247,7 @@ public class ProductCacheQueryService {
             return cached;
         }
 
-        List<Product> productsFromDb = productReadPort.findAllByIdIn(List.of(productId));
+        List<Product> productsFromDb = findProductsWithDbFallbackBulkhead(List.of(productId));
         Product product = productsFromDb.stream()
                 .filter(this::isValidProduct)
                 .filter(candidate -> productId.equals(candidate.getId()))
@@ -249,6 +261,38 @@ public class ProductCacheQueryService {
         }
 
         return Optional.ofNullable(repopulateMissingCaches(productId, product));
+    }
+
+    private List<Product> findProductsWithDbFallbackBulkhead(List<Long> productIds) {
+        try {
+            return getDbFallbackBulkhead().executeSupplier(() -> productReadPort.findAllByIdIn(productIds));
+        } catch (BulkheadFullException e) {
+            productCacheMetricsPort.recordDbFallbackRejected(productIds.size());
+            log.warn(
+                    "DB fallback bulkhead rejected. requestedCount={}, maxConcurrentCalls={}",
+                    productIds.size(),
+                    Math.max(dbFallbackMaxConcurrentCalls, 1)
+            );
+            throw new DbFallbackRejectedException(productIds.size(), e);
+        }
+    }
+
+    private Bulkhead getDbFallbackBulkhead() {
+        Bulkhead current = dbFallbackBulkhead;
+        if (current != null) {
+            return current;
+        }
+
+        synchronized (this) {
+            if (dbFallbackBulkhead == null) {
+                BulkheadConfig config = BulkheadConfig.custom()
+                        .maxConcurrentCalls(Math.max(dbFallbackMaxConcurrentCalls, 1))
+                        .maxWaitDuration(Duration.ofMillis(Math.max(dbFallbackMaxWaitMillis, 0L)))
+                        .build();
+                dbFallbackBulkhead = Bulkhead.of("product-cache-db-fallback", config);
+            }
+            return dbFallbackBulkhead;
+        }
     }
 
     private Optional<ProductResult> getFullyCachedProduct(Long productId) {
