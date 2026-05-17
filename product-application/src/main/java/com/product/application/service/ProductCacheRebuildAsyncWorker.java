@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.slf4j.MDC;
 
 import java.util.List;
 import java.util.UUID;
@@ -24,6 +25,8 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class ProductCacheRebuildAsyncWorker {
 
+    private static final String JOB_ID_MDC_KEY = "jobId";
+
     private final ProductReadPort productReadPort;
     private final ProductCacheRefreshService productCacheRefreshService;
     private final RebuildJobStore rebuildJobStore;
@@ -34,6 +37,7 @@ public class ProductCacheRebuildAsyncWorker {
 
     @Async
     public void rebuild(UUID jobId, RebuildRequest request) {
+        MDC.put(JOB_ID_MDC_KEY, String.valueOf(jobId));
         long totalStartNs = System.nanoTime();
 
         try {
@@ -109,6 +113,8 @@ public class ProductCacheRebuildAsyncWorker {
                     "Cache rebuild failed.",
                     failureReason
             );
+        } finally {
+            MDC.remove(JOB_ID_MDC_KEY);
         }
     }
 
