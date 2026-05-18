@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.product.application.common.exception.CacheOperationException;
 import com.product.application.dto.result.ProductResult;
 import com.product.infrastructure.cache.RedisProductDetailCacheAdapter;
+import com.product.infrastructure.cache.support.ProductCacheCircuitBreaker;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
 import com.product.infrastructure.cache.support.ProductCacheTtlPolicy;
 import com.product.infrastructure.cache.support.RedisCacheBatchExecutor;
@@ -25,6 +26,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -54,6 +56,9 @@ class RedisProductDetailCacheAdapterTest {
     private ProductCacheTtlPolicy ttlPolicy;
 
     @Mock
+    private ProductCacheCircuitBreaker circuitBreaker;
+
+    @Mock
     private ValueOperations<String, String> valueOperations;
 
     private RedisProductDetailCacheAdapter adapter;
@@ -66,8 +71,16 @@ class RedisProductDetailCacheAdapterTest {
                 properties,
                 keyGenerator,
                 batchExecutor,
-                ttlPolicy
+                ttlPolicy,
+                circuitBreaker
         );
+        lenient().when(circuitBreaker.executeSupplier(any())).thenAnswer(invocation ->
+                ((Supplier<?>) invocation.getArgument(0)).get()
+        );
+        lenient().doAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(0)).run();
+            return null;
+        }).when(circuitBreaker).executeRunnable(any());
     }
 
     @Nested

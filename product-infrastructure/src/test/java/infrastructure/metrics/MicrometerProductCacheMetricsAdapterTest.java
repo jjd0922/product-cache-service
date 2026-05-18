@@ -60,6 +60,13 @@ class MicrometerProductCacheMetricsAdapterTest {
         assertThat(counter("product.cache.notfound.hits")).isEqualTo(3.0);
     }
 
+    @Test
+    void recordDbFallbackRejected_recordsRejectedCount() {
+        adapter.recordDbFallbackRejected(4L);
+
+        assertThat(counter("product.cache.fallback.rejected")).isEqualTo(4.0);
+    }
+
     private double counter(String name, String... tags) {
         return meterRegistry.get(name).tags(tags).counter().count();
     }

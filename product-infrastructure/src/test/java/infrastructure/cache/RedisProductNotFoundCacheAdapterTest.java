@@ -1,6 +1,7 @@
 package infrastructure.cache;
 
 import com.product.infrastructure.cache.RedisProductNotFoundCacheAdapter;
+import com.product.infrastructure.cache.support.ProductCacheCircuitBreaker;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
 import com.product.infrastructure.config.ProductCacheProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +13,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
@@ -23,6 +25,7 @@ class RedisProductNotFoundCacheAdapterTest {
     private ValueOperations<String, String> valueOperations;
     private ProductCacheProperties properties;
     private ProductCacheKeyGenerator keyGenerator;
+    private ProductCacheCircuitBreaker circuitBreaker;
     private RedisProductNotFoundCacheAdapter adapter;
 
     @BeforeEach
@@ -31,9 +34,17 @@ class RedisProductNotFoundCacheAdapterTest {
         valueOperations = mock(ValueOperations.class);
         properties = new ProductCacheProperties();
         keyGenerator = mock(ProductCacheKeyGenerator.class);
-        adapter = new RedisProductNotFoundCacheAdapter(redisTemplate, properties, keyGenerator);
+        circuitBreaker = mock(ProductCacheCircuitBreaker.class);
+        adapter = new RedisProductNotFoundCacheAdapter(redisTemplate, properties, keyGenerator, circuitBreaker);
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(circuitBreaker.executeSupplier(any())).thenAnswer(invocation ->
+                ((Supplier<?>) invocation.getArgument(0)).get()
+        );
+        doAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(0)).run();
+            return null;
+        }).when(circuitBreaker).executeRunnable(any());
     }
 
     @Test

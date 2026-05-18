@@ -2,6 +2,7 @@ package com.product.presentation.common.advice;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.product.application.common.exception.DbFallbackRejectedException;
 import com.product.domain.common.exception.CommonErrorCode;
 import com.product.domain.common.exception.DomainException;
 import com.product.domain.product.exception.ProductErrorCode;
@@ -171,6 +172,21 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("DB fallback bulkhead 거절 시 503 failure 응답을 반환한다")
+    void handleDbFallbackRejectedException_thenReturnServiceUnavailableResponse() throws Exception {
+        mockMvc.perform(get("/test-exceptions/db-fallback-rejected"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andExpect(jsonPath("$.error.code").value(CommonErrorCode.SERVICE_UNAVAILABLE.getCode()))
+                .andExpect(jsonPath("$.error.message").value(CommonErrorCode.SERVICE_UNAVAILABLE.getMessage()))
+                .andExpect(jsonPath("$.error.details").isArray())
+                .andExpect(jsonPath("$.error.details.length()").value(0))
+                .andExpect(jsonPath("$.path").value("/test-exceptions/db-fallback-rejected"));
+    }
+
+    @Test
     @DisplayName("예상하지 못한 예외 발생 시 500 failure 응답을 반환한다")
     void handleException_thenReturnInternalServerErrorResponse() throws Exception {
         mockMvc.perform(get("/test-exceptions/unexpected"))
@@ -202,6 +218,11 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/unexpected")
         public void throwUnexpectedException() {
             throw new RuntimeException("unexpected error");
+        }
+
+        @GetMapping("/db-fallback-rejected")
+        public void throwDbFallbackRejectedException() {
+            throw new DbFallbackRejectedException(1, new RuntimeException("bulkhead full"));
         }
 
         @GetMapping("/jobs/{jobId}")

@@ -2,8 +2,10 @@ package com.product.infrastructure.cache;
 
 import com.product.application.common.exception.CacheOperationException;
 import com.product.application.port.out.ProductNotFoundCachePort;
+import com.product.infrastructure.cache.support.ProductCacheCircuitBreaker;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
 import com.product.infrastructure.config.ProductCacheProperties;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,6 +28,7 @@ public class RedisProductNotFoundCacheAdapter implements ProductNotFoundCachePor
     private final StringRedisTemplate redisTemplate;
     private final ProductCacheProperties properties;
     private final ProductCacheKeyGenerator keyGenerator;
+    private final ProductCacheCircuitBreaker circuitBreaker;
 
     @Override
     public Set<Long> getAll(Collection<Long> productIds) {
@@ -39,7 +42,7 @@ public class RedisProductNotFoundCacheAdapter implements ProductNotFoundCachePor
                 .toList();
 
         try {
-            List<String> cachedValues = valueOperations().multiGet(keys);
+            List<String> cachedValues = circuitBreaker.executeSupplier(() -> valueOperations().multiGet(keys));
             if (cachedValues == null || cachedValues.isEmpty()) {
                 return Set.of();
             }
@@ -51,7 +54,7 @@ public class RedisProductNotFoundCacheAdapter implements ProductNotFoundCachePor
                 }
             }
             return hits;
-        } catch (DataAccessException e) {
+        } catch (DataAccessException | CallNotPermittedException e) {
             throw new CacheOperationException(CACHE_NAME, "getAll", validIds.size(), "not-found cache 조회 실패", e);
         }
     }
@@ -63,12 +66,14 @@ public class RedisProductNotFoundCacheAdapter implements ProductNotFoundCachePor
         }
 
         try {
-            valueOperations().set(
-                    keyGenerator.notFoundKey(productId),
-                    MARKER_VALUE,
-                    Duration.ofSeconds(Math.max(properties.getNotFoundTtlSeconds(), 1L))
+            circuitBreaker.executeRunnable(() ->
+                    valueOperations().set(
+                            keyGenerator.notFoundKey(productId),
+                            MARKER_VALUE,
+                            Duration.ofSeconds(Math.max(properties.getNotFoundTtlSeconds(), 1L))
+                    )
             );
-        } catch (DataAccessException e) {
+        } catch (DataAccessException | CallNotPermittedException e) {
             throw new CacheOperationException(CACHE_NAME, "put", 1, "not-found cache 저장 실패", e);
         }
     }
@@ -80,8 +85,8 @@ public class RedisProductNotFoundCacheAdapter implements ProductNotFoundCachePor
         }
 
         try {
-            redisTemplate.delete(keyGenerator.notFoundKey(productId));
-        } catch (DataAccessException e) {
+            circuitBreaker.executeRunnable(() -> redisTemplate.delete(keyGenerator.notFoundKey(productId)));
+        } catch (DataAccessException | CallNotPermittedException e) {
             throw new CacheOperationException(CACHE_NAME, "evict", 1, "not-found cache 삭제 실패", e);
         }
     }
@@ -97,8 +102,8 @@ public class RedisProductNotFoundCacheAdapter implements ProductNotFoundCachePor
         }
 
         try {
-            redisTemplate.delete(keys);
-        } catch (DataAccessException e) {
+            circuitBreaker.executeRunnable(() -> redisTemplate.delete(keys));
+        } catch (DataAccessException | CallNotPermittedException e) {
             throw new CacheOperationException(CACHE_NAME, "evictAll", keys.size(), "not-found cache 일괄 삭제 실패", e);
         }
     }

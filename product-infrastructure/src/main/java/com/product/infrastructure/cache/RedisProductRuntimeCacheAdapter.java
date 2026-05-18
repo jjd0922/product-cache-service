@@ -5,10 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.product.application.common.exception.CacheOperationException;
 import com.product.application.dto.cache.ProductRuntimeCacheData;
 import com.product.application.port.out.ProductRuntimeCachePort;
+import com.product.infrastructure.cache.support.ProductCacheCircuitBreaker;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
 import com.product.infrastructure.cache.support.RedisCacheBatchExecutor;
 import com.product.infrastructure.cache.support.ProductCacheTtlPolicy;
 import com.product.infrastructure.config.ProductCacheProperties;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -20,6 +23,7 @@ import java.util.*;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort {
 
     private static final String CACHE_NAME = "product-runtime-cache";
@@ -30,22 +34,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
     private final ProductCacheKeyGenerator keyGenerator;
     private final RedisCacheBatchExecutor batchExecutor;
     private final ProductCacheTtlPolicy ttlPolicy;
-
-    public RedisProductRuntimeCacheAdapter(
-            StringRedisTemplate redisTemplate,
-            ObjectMapper objectMapper,
-            ProductCacheProperties properties,
-            ProductCacheKeyGenerator keyGenerator,
-            RedisCacheBatchExecutor batchExecutor,
-            ProductCacheTtlPolicy ttlPolicy
-    ) {
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
-        this.properties = properties;
-        this.keyGenerator = keyGenerator;
-        this.batchExecutor = batchExecutor;
-        this.ttlPolicy = ttlPolicy;
-    }
+    private final ProductCacheCircuitBreaker circuitBreaker;
 
     @Override
     public Optional<ProductRuntimeCacheData> get(Long productId) {
@@ -56,7 +45,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
         String key = keyGenerator.runtimeKey(productId);
 
         try {
-            String cached = valueOperations().get(key);
+            String cached = circuitBreaker.executeSupplier(() -> valueOperations().get(key));
             if (cached == null) {
                 log.debug("event=cache_get_miss cache={} key={} productId={}", CACHE_NAME, key, productId);
                 return Optional.empty();
@@ -84,7 +73,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
             );
             deleteQuietly(key, productId);
             return Optional.empty();
-        } catch (DataAccessException e) {
+        } catch (DataAccessException | CallNotPermittedException e) {
             log.warn(
                     "event=cache_get_error cache={} key={} productId={} message={}",
                     CACHE_NAME, key, productId, e.getMessage()
@@ -105,7 +94,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
                 .toList();
 
         try {
-            List<String> cachedValues = valueOperations().multiGet(keys);
+            List<String> cachedValues = circuitBreaker.executeSupplier(() -> valueOperations().multiGet(keys));
             if (cachedValues == null || cachedValues.isEmpty()) {
                 return Map.of();
             }
@@ -146,7 +135,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
             }
 
             return results;
-        } catch (DataAccessException e) {
+        } catch (DataAccessException | CallNotPermittedException e) {
             log.warn(
                     "event=cache_batch_get_error cache={} keyCount={} message={}",
                     CACHE_NAME, keys.size(), e.getMessage()
@@ -165,7 +154,9 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
 
         try {
             String payload = objectMapper.writeValueAsString(runtimeCacheData);
-            valueOperations().set(key, payload, Duration.ofSeconds(ttlPolicy.runtimeTtlSeconds()));
+            circuitBreaker.executeRunnable(() ->
+                    valueOperations().set(key, payload, Duration.ofSeconds(ttlPolicy.runtimeTtlSeconds()))
+            );
             log.debug(
                     "event=cache_put_success cache={} key={} productId={}",
                     CACHE_NAME, key, runtimeCacheData.productId()
@@ -178,7 +169,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
                     "상품 runtime cache 직렬화 실패",
                     e
             );
-        } catch (DataAccessException e) {
+        } catch (DataAccessException | CallNotPermittedException e) {
             throw new CacheOperationException(
                     CACHE_NAME,
                     "put",
@@ -239,7 +230,7 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
             );
 
             try {
-                batchExecutor.setExBatch(batch, ttlPolicy.runtimeTtlSeconds());
+                circuitBreaker.executeRunnable(() -> batchExecutor.setExBatch(batch, ttlPolicy.runtimeTtlSeconds()));
             } catch (RuntimeException e) {
                 throw new CacheOperationException(
                         CACHE_NAME,
@@ -263,9 +254,9 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
         String key = keyGenerator.runtimeKey(productId);
 
         try {
-            redisTemplate.delete(key);
+            circuitBreaker.executeRunnable(() -> redisTemplate.delete(key));
             log.debug("event=cache_evict_success cache={} key={} productId={}", CACHE_NAME, key, productId);
-        } catch (DataAccessException e) {
+        } catch (DataAccessException | CallNotPermittedException e) {
             throw new CacheOperationException(
                     CACHE_NAME,
                     "evict",
@@ -287,9 +278,9 @@ public class RedisProductRuntimeCacheAdapter implements ProductRuntimeCachePort 
         }
 
         try {
-            redisTemplate.delete(keys);
+            circuitBreaker.executeRunnable(() -> redisTemplate.delete(keys));
             log.debug("event=cache_evict_all_success cache={} keyCount={}", CACHE_NAME, keys.size());
-        } catch (DataAccessException e) {
+        } catch (DataAccessException | CallNotPermittedException e) {
             throw new CacheOperationException(
                     CACHE_NAME,
                     "evictAll",

@@ -3,4 +3,5 @@ dependencies {
 
     implementation 'org.springframework:spring-context'
     implementation 'org.slf4j:slf4j-api'
+    implementation 'io.github.resilience4j:resilience4j-bulkhead:2.2.0'
 }

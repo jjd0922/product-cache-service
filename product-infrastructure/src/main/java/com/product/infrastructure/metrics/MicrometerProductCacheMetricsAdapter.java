@@ -61,6 +61,11 @@ public class MicrometerProductCacheMetricsAdapter implements ProductCacheMetrics
     }
 
     @Override
+    public void recordDbFallbackRejected(long requestedCount) {
+        increment("product.cache.fallback.rejected", Math.max(requestedCount, 0L), Tags.empty());
+    }
+
+    @Override
     public void recordNotFoundCacheHit(long hitCount) {
         increment("product.cache.notfound.hits", Math.max(hitCount, 0L), Tags.empty());
     }

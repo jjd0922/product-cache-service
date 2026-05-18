@@ -34,4 +34,10 @@ public class ProductCacheProperties {
 
     private String singleFlightLockKeyPrefix = "product:singleflight:";
     private long singleFlightLockLeaseMillis = 3000;
+
+    private float circuitFailureRateThreshold = 50.0f;
+    private int circuitSlidingWindowSize = 20;
+    private int circuitMinimumNumberOfCalls = 5;
+    private long circuitWaitDurationInOpenStateMillis = 30000;
+    private int circuitPermittedCallsInHalfOpenState = 3;
 }

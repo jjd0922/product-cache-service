@@ -1,5 +1,6 @@
 package com.product.presentation.common.advice;
 
+import com.product.application.common.exception.DbFallbackRejectedException;
 import com.product.domain.common.exception.CommonErrorCode;
 import com.product.domain.common.exception.DomainException;
 import com.product.presentation.common.response.ApiErrorDetail;
@@ -103,6 +104,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest()
                 .body(ApiResponse.failure(
                         ApiErrorResponse.of(CommonErrorCode.INVALID_INPUT, List.of(detail)),
+                        request.getRequestURI()
+                ));
+    }
+
+    @ExceptionHandler(DbFallbackRejectedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDbFallbackRejectedException(
+            DbFallbackRejectedException exception,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiResponse.failure(
+                        ApiErrorResponse.of(CommonErrorCode.SERVICE_UNAVAILABLE),
                         request.getRequestURI()
                 ));
     }
