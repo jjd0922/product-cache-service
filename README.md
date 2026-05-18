@@ -6,9 +6,9 @@
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-green)]()
 [![Redis](https://img.shields.io/badge/Redis-7.x-red)]()
 
-상품 조회 성능과 운영 안정성을 함께 다루는 모듈 기반 백엔드 서비스입니다.
+상품 조회 성능과 운영 안정성을 함께 다루는 모듈 기반 백엔드 서비스.
 
-상세 설계, 실행 방법, 관측성, 부하 테스트 결과는 [docs/README.md](./docs/README.md)를 참고하세요.
+상세 설계, 실행 방법, 관측성, 부하 테스트 결과는 [docs/README.md](./docs/README.md)를 참고.
 
 ## Highlights
 
