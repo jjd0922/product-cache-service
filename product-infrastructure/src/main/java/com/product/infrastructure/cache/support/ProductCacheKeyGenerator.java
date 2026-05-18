@@ -18,4 +18,7 @@ public class ProductCacheKeyGenerator {
         return properties.getRuntimeKeyPrefix() + productId;
     }
 
+    public String notFoundKey(Long productId) {
+        return properties.getNotFoundKeyPrefix() + productId;
+    }
 }

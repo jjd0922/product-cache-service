@@ -5,6 +5,7 @@ import com.product.application.dto.result.ProductResult;
 import com.product.application.factory.ProductResultFactory;
 import com.product.application.factory.ProductRuntimeCacheFactory;
 import com.product.application.port.out.ProductDetailCachePort;
+import com.product.application.port.out.ProductNotFoundCachePort;
 import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
 import org.junit.jupiter.api.DisplayName;
@@ -31,6 +32,9 @@ class ProductCacheRefreshServiceTest {
 
     @Mock
     private ProductRuntimeCachePort productRuntimeCachePort;
+
+    @Mock
+    private ProductNotFoundCachePort productNotFoundCachePort;
 
     @Mock
     private ProductResultFactory productResultFactory;

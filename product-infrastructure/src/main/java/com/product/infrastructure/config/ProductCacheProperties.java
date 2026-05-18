@@ -19,6 +19,9 @@ public class ProductCacheProperties {
     private long runtimeTtlSeconds = 300;
     private long runtimeTtlJitterSeconds = 0;
 
+    private String notFoundKeyPrefix = "product:notfound:";
+    private long notFoundTtlSeconds = 60;
+
     /** pipeline batch size */
     private int pipelineBatchSize = 500;
 

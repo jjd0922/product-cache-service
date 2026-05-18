@@ -61,6 +61,11 @@ public class MicrometerProductCacheMetricsAdapter implements ProductCacheMetrics
     }
 
     @Override
+    public void recordNotFoundCacheHit(long hitCount) {
+        increment("product.cache.notfound.hits", Math.max(hitCount, 0L), Tags.empty());
+    }
+
+    @Override
     public void recordRebuildChunk(long requestedCount, long loadedCount, long elapsedMs) {
         if (requestedCount < 1) {
             return;
