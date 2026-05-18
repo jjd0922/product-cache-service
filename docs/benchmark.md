@@ -1,8 +1,6 @@
 # Benchmark
 
-상품 조회 캐시 적용 효과를 DB only 모드와 cache enabled 모드로 비교하기 위한 부하 테스트 기록이다.
-
-현재 문서에는 전달받은 k6 콘솔 캡처와 actuator metric 캡처 기준의 **cache enabled 측정값**을 반영했다. DB only 지연시간은 아직 별도 캡처가 없어 Before/After latency 비교값으로 확정하지 않는다.
+상품 조회 캐시 적용 효과를 DB only 모드와 cache enabled 모드로 비교한 k6 부하 테스트 기록이다. k6 `--summary-export` 결과는 `loadtest/results/`에 보관한다.
 
 ## 측정 환경
 
@@ -14,9 +12,10 @@
 | App | `product-api` local bootRun |
 | DB | MySQL 8.0 Docker Compose |
 | Cache | Redis 7 Docker Compose |
-| Cache mode | cache enabled |
-| VUs | 200 observed |
+| 비교 모드 | `PRODUCT_CACHE_ENABLED=false` vs `true` |
 | 측정 시간 | 각 시나리오 6분 |
+
+측정의 한계: 본 결과는 단일 호스트에서 App, DB, Redis, k6를 함께 실행한 측정값이다. 실제 운영 환경의 네트워크 latency, DB 디스크 I/O 부하, JVM 워밍업 후 정상 상태가 충분히 반영되지 않을 수 있다. 상대적 개선폭(Before/After delta)의 신뢰도는 높지만 절대 수치(예: p99 17ms)는 환경에 따라 달라질 수 있다.
 
 ## 시나리오
 
@@ -26,17 +25,22 @@
 | 다건 조회 | `loadtest/k6/product-batch.js` | 20 ids/request, 최대 500 iters/s, 6분 실행 |
 | Hot/Cold 조회 | `loadtest/k6/product-hot-cold.js` | 90% hot key, 10% cold key, 최대 1,000 iters/s, 6분 실행 |
 
-## Cache Enabled 측정 결과
+## k6 결과
 
-| 시나리오 | Checks | 실패율 | avg | p50 | p90 | p95 | p99 | max | 처리량 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 단건 조회 | 210,148 | 0.00% | 3.61ms | 2.15ms | 9.18ms | 13.04ms | 17.18ms | 123.72ms | 583.74 req/s |
-| 다건 조회 | 105,149 | 0.00% | 4.83ms | 2.76ms | 4.75ms | 13.33ms | 29.38ms | 260.20ms | 292.08 req/s |
-| Hot/Cold 조회 | 210,149 | 0.00% | 3.23ms | 2.13ms | 4.99ms | 11.60ms | 16.86ms | 100.70ms | 583.73 req/s |
+![k6 hot-cold cache enabled result](./assets/k6-hot-cold-cache-enabled.png)
+
+| 시나리오 | 모드 | Checks | 실패율 | avg | p50 | p90 | p95 | p99 | max | 처리량 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 단건 조회 | DB only | 204,881 | 0.00% | 117.22ms | 4.57ms | 478.34ms | 1106.62ms | 1318.34ms | 1908.62ms | 568.40 req/s |
+| 단건 조회 | Cache enabled | 210,148 | 0.00% | 3.61ms | 2.16ms | 9.18ms | 13.05ms | 17.19ms | 123.72ms | 583.74 req/s |
+| 다건 조회 | DB only | 105,148 | 0.00% | 4.01ms | 3.73ms | 5.23ms | 5.80ms | 7.26ms | 74.51ms | 292.07 req/s |
+| 다건 조회 | Cache enabled | 105,149 | 0.00% | 4.84ms | 2.76ms | 4.75ms | 13.33ms | 29.39ms | 260.21ms | 292.08 req/s |
+| Hot/Cold 조회 | DB only | 209,777 | 0.00% | 16.65ms | 4.02ms | 27.82ms | 92.09ms | 246.34ms | 819.07ms | 582.55 req/s |
+| Hot/Cold 조회 | Cache enabled | 210,149 | 0.00% | 3.23ms | 2.14ms | 4.99ms | 11.60ms | 16.86ms | 100.71ms | 583.73 req/s |
 
 ## Cache Metric Delta
 
-Actuator metric은 누적 카운터이므로 테스트 전후 값을 빼서 delta를 계산했다.
+Cache enabled 모드는 actuator 누적 카운터의 테스트 전후 값을 빼서 delta를 계산했다.
 
 | 시나리오 | fallback 시작 | fallback 종료 | fallback delta | DB fallback QPS | read hit delta | read miss delta | Redis hit ratio |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -44,51 +48,33 @@ Actuator metric은 누적 카운터이므로 테스트 전후 값을 빼서 delt
 | 다건 조회 | 33,135 | 53,131 | 19,996 | 55.54/s | 4,225,956 | 59,988 | 98.60% |
 | Hot/Cold 조회 | 53,131 | 56,033 | 2,902 | 8.06/s | 423,197 | 8,709 | 97.98% |
 
-### 해석
+## Before / After 요약
 
-- 단건 조회는 583.74 req/s 부하에서 DB fallback이 27.78/s로 제한됐다. 단건 요청 기준으로 보면 전체 요청량 대비 DB fallback은 약 4.8% 수준이다.
-- 다건 조회는 292.08 req/s, 요청당 20개 상품 조회 조건에서 DB fallback이 55.54/s로 제한됐다. 조회 item 기준으로는 약 5,841 item/s 부하 중 약 1.0%만 DB fallback으로 흘렀다.
-- Hot/Cold 조회는 hot key 재사용 효과로 DB fallback이 8.06/s까지 낮아졌고, Redis hit ratio도 97.98%로 확인됐다.
+DB only 모드에서는 캐시 계층을 우회하므로 Redis hit ratio는 N/A다. DB 부하 감소율은 같은 테스트 부하에서 DB only 처리량과 cache enabled fallback QPS를 비교해 계산했다.
 
-## DB Only / Cache Enabled 비교표
+| 시나리오 | p99 변화 | DB 부하 변화 | 해석 |
+|---|---:|---:|---|
+| 단건 조회 | 1318.34ms -> 17.19ms (-98.7%) | 568.40/s -> 27.78/s (-95.1%) | cache hit가 누적되면서 tail latency와 DB 부하가 함께 크게 감소 |
+| 다건 조회 | 7.26ms -> 29.39ms (+304.8%) | 5841.40 item/s -> 55.54/s (-99.0%) | 로컬 단건성 DB 조회가 매우 빠른 조건에서는 cache merge/직렬화 비용 때문에 p99가 악화됐지만 DB 부하는 크게 감소 |
+| Hot/Cold 조회 | 246.34ms -> 16.86ms (-93.2%) | 582.55/s -> 8.06/s (-98.6%) | hot key 재사용 효과로 cache hit ratio가 높고 fallback이 낮게 유지됨 |
 
-DB only latency 캡처는 아직 없으므로 DB only p50/p95/p99는 확정하지 않는다. 단, cache enabled 모드의 실제 지연시간과 DB fallback QPS는 이번 측정값을 반영한다.
+## 해석
 
-| 시나리오 | 모드 | p50 | p95 | p99 | 처리량 | DB QPS | Redis hit ratio |
-|---|---|---:|---:|---:|---:|---:|---:|
-| 단건 조회 | DB only | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | N/A |
-| 단건 조회 | Cache enabled | 2.15ms | 13.04ms | 17.18ms | 583.74 req/s | 27.78/s | 91.98% |
-| 다건 조회 | DB only | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | N/A |
-| 다건 조회 | Cache enabled | 2.76ms | 13.33ms | 29.38ms | 292.08 req/s | 55.54/s | 98.60% |
-| Hot/Cold 조회 | DB only | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | 추가 측정 필요 | N/A |
-| Hot/Cold 조회 | Cache enabled | 2.13ms | 11.60ms | 16.86ms | 583.73 req/s | 8.06/s | 97.98% |
-
-## 산술 추정
-
-DB only 실측 latency가 아직 없기 때문에 README에는 p99 Before/After를 확정값으로 쓰지 않는다. 다만 같은 요청량이 모두 DB로 직접 흘렀다고 가정하면, cache enabled 모드의 DB fallback 감소 폭은 다음과 같이 추정할 수 있다.
-
-| 시나리오 | 기준 부하 | cache enabled DB fallback | DB fallback 감소 추정 |
-|---|---:|---:|---:|
-| 단건 조회 | 583.74 req/s | 27.78/s | 약 95.2% 감소 |
-| 다건 조회 | 5,841.60 item/s | 55.54/s | 약 99.0% 감소 |
-| Hot/Cold 조회 | 583.73 req/s | 8.06/s | 약 98.6% 감소 |
-
-위 감소율은 DB only 실측값이 아니라 요청량 대비 cache fallback metric으로 계산한 산술 추정이다. 최종 PR/README Highlight에는 DB only 모드 실측 결과를 추가한 뒤 확정 문구로 반영한다.
+- 단건 조회는 DB only p99가 1318.34ms까지 상승했지만 cache enabled 모드에서는 17.19ms로 내려갔다.
+- 단건 조회는 최대 1,000 iters/s, 다건 조회는 최대 500 iters/s로 의도적으로 다른 부하를 인가했다. 단건 DB only 모드에서 p99가 1318.34ms까지 상승한 것은 DB 자체 성능의 절대값이라기보다 같은 머신에서 동시 부하가 DB connection pool 한계에 도달한 결과로 해석한다.
+- Hot/Cold 조회는 운영 환경의 hot key 패턴에 가까운 조건에서 p99 93.2% 개선, DB 부하 98.6% 감소를 확인했다.
+- 다건 조회는 latency만 보면 cache enabled p99가 DB only보다 나빴다. 다만 요청당 20개 item 기준 DB 접근량은 약 99.0% 감소했다. 이 결과는 포트폴리오 문서에서 성능 개선을 과장하지 않고, 캐시가 latency와 DB 보호 사이의 trade-off를 가진다는 근거로 사용한다.
 
 ## Metric 계산 방식
 
-### DB QPS
+### DB 부하
 
-Actuator metric의 테스트 전후 delta로 계산한다.
+DB only 모드는 캐시를 우회하므로 요청량 자체를 DB 부하로 본다. 다건 조회는 요청당 20개 상품을 조회하므로 item/s로 환산한다.
 
 ```text
-DB QPS = product.cache.fallback.items{result="requested"} delta / 측정 초
-```
-
-조회 명령:
-
-```powershell
-Invoke-RestMethod "http://localhost:8080/actuator/metrics/product.cache.fallback.items?tag=result:requested"
+DB only 단건/HotCold DB 부하 = http_reqs rate
+DB only 다건 DB 부하 = http_reqs rate * 20
+Cache enabled DB 부하 = product.cache.fallback.items{result="requested"} delta / 측정 초
 ```
 
 ### Redis Hit Ratio
@@ -100,23 +86,13 @@ Redis hit ratio = hit delta / (hit delta + miss delta)
 조회 명령:
 
 ```powershell
+Invoke-RestMethod "http://localhost:8080/actuator/metrics/product.cache.fallback.items?tag=result:requested"
 Invoke-RestMethod "http://localhost:8080/actuator/metrics/product.cache.read.items?tag=result:hit"
 Invoke-RestMethod "http://localhost:8080/actuator/metrics/product.cache.read.items?tag=result:miss"
 ```
 
-## README Highlight 반영 기준
-
-README에는 DB only와 cache enabled를 모두 측정한 뒤 실제 Before/After 수치만 반영한다.
+## README Highlight 반영값
 
 ```md
-- 단건 조회 p99 **{DB only p99}ms -> 17.18ms**, DB QPS **{DB only QPS}/s -> 27.78/s** *(k6 측정, `docs/benchmark.md` 참고)*
+- 단건 조회 p99 **1318.34ms -> 17.19ms**, DB 부하 **568.40/s -> 27.78/s (-95.1%)** *(k6 측정, `docs/benchmark.md` 참고)*
 ```
-
-현재 cache enabled p99와 DB fallback QPS는 실제 측정값으로 확보됐다. DB only p99와 DB only QPS 캡처를 추가하면 README Highlight의 Before/After 문구를 확정할 수 있다.
-
-## 추가로 필요한 자료
-
-- DB only 단건/다건/hot-cold k6 결과 캡처 또는 `--summary-export` JSON
-- DB only 각 시나리오 테스트 전후 actuator metric 값
-  - `product.cache.fallback.items?tag=result:requested`
-  - DB only 모드에서는 Redis read metric이 N/A일 수 있음
