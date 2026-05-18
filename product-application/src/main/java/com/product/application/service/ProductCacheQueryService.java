@@ -14,6 +14,7 @@ import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -49,6 +50,9 @@ public class ProductCacheQueryService {
     private final ConcurrentHashMap<Long, CompletableFuture<Optional<ProductResult>>> localInFlight =
             new ConcurrentHashMap<>();
 
+    @Value("${product.cache.enabled:true}")
+    private boolean cacheEnabled = true;
+
     public Optional<ProductResult> getProduct(Long productId) {
         if (!isValidProductId(productId)) {
             return Optional.empty();
@@ -79,6 +83,10 @@ public class ProductCacheQueryService {
         List<Long> distinctIds = normalizeIds(productIds);
         if (distinctIds.isEmpty()) {
             return Map.of();
+        }
+
+        if (!cacheEnabled) {
+            return getProductsFromDbOnly(distinctIds);
         }
 
         Set<Long> notFoundCacheHits = safeGetNotFoundCacheAll(distinctIds);
@@ -123,6 +131,26 @@ public class ProductCacheQueryService {
                     .ifPresent(result -> resultMap.put(fallbackId, result));
         }
 
+        return resultMap;
+    }
+
+    private Map<Long, ProductResult> getProductsFromDbOnly(List<Long> productIds) {
+        List<Product> productsFromDb = productReadPort.findAllByIdIn(productIds);
+        productCacheMetricsPort.recordDbFallback(productIds.size(), productsFromDb.size());
+
+        Map<Long, ProductResult> resultMap = new LinkedHashMap<>();
+        for (Product product : productsFromDb) {
+            if (!isValidProduct(product)) {
+                continue;
+            }
+
+            ProductResult detail = productResultFactory.from(product);
+            if (detail == null || detail.id() == null) {
+                continue;
+            }
+
+            resultMap.put(product.getId(), detail.applyRuntime(createRuntime(product)));
+        }
         return resultMap;
     }
 
