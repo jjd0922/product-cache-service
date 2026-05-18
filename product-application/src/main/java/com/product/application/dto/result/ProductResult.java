@@ -1,10 +1,12 @@
 package com.product.application.dto.result;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.product.application.dto.cache.ProductRuntimeCacheData;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record ProductResult(
         Long id,
         String name,

@@ -3,5 +3,8 @@ dependencies {
 
     implementation 'org.springframework:spring-context'
     implementation 'org.slf4j:slf4j-api'
+    implementation 'com.fasterxml.jackson.core:jackson-annotations'
+    implementation 'io.micrometer:micrometer-observation'
+    implementation 'io.micrometer:context-propagation'
     implementation 'io.github.resilience4j:resilience4j-bulkhead:2.2.0'
 }

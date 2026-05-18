@@ -11,14 +11,31 @@ public class ProductCacheKeyGenerator {
     private final ProductCacheProperties properties;
 
     public String detailKey(Long productId) {
-        return properties.getDetailKeyPrefix() + productId;
+        return versionedPrefix("detail") + productId;
     }
 
     public String runtimeKey(Long productId) {
-        return properties.getRuntimeKeyPrefix() + productId;
+        return versionedPrefix("runtime") + productId;
     }
 
     public String notFoundKey(Long productId) {
-        return properties.getNotFoundKeyPrefix() + productId;
+        return versionedPrefix("notfound") + productId;
+    }
+
+    private String versionedPrefix(String cacheName) {
+        return sanitize(properties.getKeyPrefix(), "product")
+                + ":"
+                + sanitize(properties.getKeyVersion(), "v1")
+                + ":"
+                + cacheName
+                + ":";
+    }
+
+    private String sanitize(String value, String defaultValue) {
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+
+        return value.strip().replaceAll("^:+|:+$", "");
     }
 }
