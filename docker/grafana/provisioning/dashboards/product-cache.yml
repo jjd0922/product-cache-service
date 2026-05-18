@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: product-cache
+    orgId: 1
+    folder: Product Cache Service
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
