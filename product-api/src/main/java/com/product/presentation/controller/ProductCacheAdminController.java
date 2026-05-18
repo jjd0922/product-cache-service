@@ -1,6 +1,7 @@
 package com.product.presentation.controller;
 
 import com.product.application.dto.command.ProductCacheRebuildCommand;
+import com.product.application.dto.result.ProductCacheEventDlqResult;
 import com.product.application.dto.result.RebuildJobResult;
 import com.product.application.port.in.ProductCacheAdminUseCase;
 import com.product.presentation.assembler.ProductCacheAdminRequestAssembler;
@@ -8,6 +9,7 @@ import com.product.presentation.assembler.ProductCacheAdminResponseAssembler;
 import com.product.presentation.common.response.ApiResponse;
 import com.product.presentation.dto.request.RebuildRequest;
 import com.product.presentation.dto.response.CacheJobStatusResponse;
+import com.product.presentation.dto.response.ProductCacheEventDlqResponse;
 import com.product.presentation.dto.response.RebuildStartedResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -16,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -48,5 +51,38 @@ public class ProductCacheAdminController {
                 .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.PRAGMA, "no-cache")
                 .body(ApiResponse.success(response));
+    }
+
+    @GetMapping("/events/dlq")
+    public ResponseEntity<ApiResponse<List<ProductCacheEventDlqResponse>>> getEventDlq(
+            @RequestParam(defaultValue = "100") int limit
+    ) {
+        List<ProductCacheEventDlqResponse> response = productCacheAdminUseCase.getEventDlq(limit)
+                .stream()
+                .map(this::toEventDlqResponse)
+                .toList();
+
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .body(ApiResponse.success(response));
+    }
+
+    @PostMapping("/events/dlq/{eventId}/reprocess")
+    public ResponseEntity<ApiResponse<ProductCacheEventDlqResponse>> reprocessEventDlq(@PathVariable String eventId) {
+        ProductCacheEventDlqResult result = productCacheAdminUseCase.reprocessEventDlq(eventId);
+        return ResponseEntity.accepted()
+                .cacheControl(CacheControl.noStore())
+                .body(ApiResponse.success(toEventDlqResponse(result)));
+    }
+
+    private ProductCacheEventDlqResponse toEventDlqResponse(ProductCacheEventDlqResult result) {
+        return new ProductCacheEventDlqResponse(
+                result.eventId(),
+                result.productId(),
+                result.changeType().name(),
+                result.failureReason(),
+                result.createdAt()
+        );
     }
 }

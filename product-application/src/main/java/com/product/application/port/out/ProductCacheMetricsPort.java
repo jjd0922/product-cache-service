@@ -19,4 +19,8 @@ public interface ProductCacheMetricsPort {
     void recordRebuildFailed();
 
     void recordCacheEventHandled(String changeType, boolean failed);
+
+    void recordCacheEventRetry(String changeType);
+
+    void recordCacheEventDlq(String changeType);
 }

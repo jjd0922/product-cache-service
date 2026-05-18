@@ -1,6 +1,8 @@
 package com.product.presentation.controller;
 
 import com.product.application.dto.command.ProductCacheRebuildCommand;
+import com.product.application.dto.command.ProductCacheChangeType;
+import com.product.application.dto.result.ProductCacheEventDlqResult;
 import com.product.application.dto.result.RebuildJobResult;
 import com.product.application.port.in.ProductCacheAdminUseCase;
 import com.product.presentation.assembler.ProductCacheAdminRequestAssembler;
@@ -19,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -175,5 +178,51 @@ class ProductCacheAdminControllerTest {
                 productCacheAdminResponseAssembler
         );
         verifyNoInteractions(productCacheAdminRequestAssembler);
+    }
+
+    @Test
+    void getEventDlq_returnsNoStoreDlqResponses() {
+        ProductCacheEventDlqResult result = new ProductCacheEventDlqResult(
+                "1-0",
+                1L,
+                ProductCacheChangeType.UPDATED,
+                "failure",
+                Instant.parse("2026-05-18T00:00:00Z")
+        );
+        when(productCacheAdminUseCase.getEventDlq(10)).thenReturn(List.of(result));
+
+        var actual = productCacheAdminController.getEventDlq(10);
+
+        assertThat(actual.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(actual.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(actual.getHeaders().getPragma()).isEqualTo("no-cache");
+        assertThat(actual.getBody()).isNotNull();
+        assertThat(actual.getBody().data()).hasSize(1);
+        assertThat(actual.getBody().data().get(0).eventId()).isEqualTo("1-0");
+        assertThat(actual.getBody().data().get(0).changeType()).isEqualTo("UPDATED");
+
+        verify(productCacheAdminUseCase).getEventDlq(10);
+    }
+
+    @Test
+    void reprocessEventDlq_returnsAcceptedResponse() {
+        ProductCacheEventDlqResult result = new ProductCacheEventDlqResult(
+                "1-0",
+                1L,
+                ProductCacheChangeType.DELETED,
+                "failure",
+                Instant.parse("2026-05-18T00:00:00Z")
+        );
+        when(productCacheAdminUseCase.reprocessEventDlq("1-0")).thenReturn(result);
+
+        var actual = productCacheAdminController.reprocessEventDlq("1-0");
+
+        assertThat(actual.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(actual.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(actual.getBody()).isNotNull();
+        assertThat(actual.getBody().data().eventId()).isEqualTo("1-0");
+        assertThat(actual.getBody().data().changeType()).isEqualTo("DELETED");
+
+        verify(productCacheAdminUseCase).reprocessEventDlq("1-0");
     }
 }

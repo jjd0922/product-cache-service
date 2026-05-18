@@ -38,4 +38,7 @@ public class ProductCacheProperties {
     private int circuitMinimumNumberOfCalls = 5;
     private long circuitWaitDurationInOpenStateMillis = 30000;
     private int circuitPermittedCallsInHalfOpenState = 3;
+
+    private String eventDlqStreamKey = "product:cache:event:dlq";
+    private int eventDlqMaxReadCount = 100;
 }

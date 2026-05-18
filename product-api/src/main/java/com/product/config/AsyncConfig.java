@@ -7,6 +7,7 @@ import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.core.task.support.ContextPropagatingTaskDecorator;
+import org.springframework.retry.annotation.EnableRetry;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
@@ -14,6 +15,7 @@ import java.util.concurrent.Executor;
 @Slf4j
 @Configuration
 @EnableAsync
+@EnableRetry
 public class AsyncConfig implements AsyncConfigurer {
 
     @Bean(name = "taskExecutor")

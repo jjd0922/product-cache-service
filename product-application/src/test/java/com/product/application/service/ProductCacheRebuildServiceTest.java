@@ -2,8 +2,13 @@ package com.product.application.service;
 
 import com.product.application.cache.RebuildJob;
 import com.product.application.cache.RebuildRequest;
+import com.product.application.dto.command.ProductCacheChangeType;
+import com.product.application.dto.command.ProductCacheChangedCommand;
 import com.product.application.dto.command.ProductCacheRebuildCommand;
+import com.product.application.dto.result.ProductCacheEventDlqResult;
 import com.product.application.dto.result.RebuildJobResult;
+import com.product.application.port.in.ProductCacheEventUseCase;
+import com.product.application.port.out.ProductCacheEventDlqPort;
 import com.product.application.port.out.RebuildJobStore;
 import com.product.domain.product.exception.ProductException;
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +19,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +41,12 @@ class ProductCacheRebuildServiceTest {
 
     @Mock
     private RebuildJobStore rebuildJobStore;
+
+    @Mock
+    private ProductCacheEventDlqPort productCacheEventDlqPort;
+
+    @Mock
+    private ProductCacheEventUseCase productCacheEventUseCase;
 
     @InjectMocks
     private ProductCacheRebuildService productCacheRebuildService;
@@ -158,5 +170,48 @@ class ProductCacheRebuildServiceTest {
                 .isInstanceOf(ProductException.class)
                 .hasMessageContaining("존재하지 않는 jobId")
                 .hasMessageContaining(jobId.toString());
+    }
+
+    @Test
+    void getEventDlq_returnsDlqEvents() {
+        ProductCacheEventDlqResult event = new ProductCacheEventDlqResult(
+                "1-0",
+                1L,
+                ProductCacheChangeType.UPDATED,
+                "failure",
+                Instant.parse("2026-05-18T00:00:00Z")
+        );
+        when(productCacheEventDlqPort.findAll(10)).thenReturn(List.of(event));
+
+        List<ProductCacheEventDlqResult> actual = productCacheRebuildService.getEventDlq(10);
+
+        assertThat(actual).containsExactly(event);
+    }
+
+    @Test
+    void reprocessEventDlq_whenEventExists_thenHandleEventAndDeleteFromDlq() {
+        ProductCacheEventDlqResult event = new ProductCacheEventDlqResult(
+                "1-0",
+                1L,
+                ProductCacheChangeType.DELETED,
+                "failure",
+                Instant.parse("2026-05-18T00:00:00Z")
+        );
+        when(productCacheEventDlqPort.find("1-0")).thenReturn(Optional.of(event));
+
+        ProductCacheEventDlqResult actual = productCacheRebuildService.reprocessEventDlq("1-0");
+
+        assertThat(actual).isEqualTo(event);
+        verify(productCacheEventUseCase).handle(new ProductCacheChangedCommand(1L, ProductCacheChangeType.DELETED));
+        verify(productCacheEventDlqPort).delete("1-0");
+    }
+
+    @Test
+    void reprocessEventDlq_whenEventDoesNotExist_thenThrowException() {
+        when(productCacheEventDlqPort.find("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> productCacheRebuildService.reprocessEventDlq("missing"))
+                .isInstanceOf(ProductException.class)
+                .hasMessageContaining("존재하지 않는 DLQ 이벤트");
     }
 }

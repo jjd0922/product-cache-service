@@ -8,6 +8,7 @@ dependencies {
 
     implementation 'com.fasterxml.jackson.core:jackson-databind'
     implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.2.0'
+    implementation 'org.springframework.retry:spring-retry'
 
     runtimeOnly 'com.mysql:mysql-connector-j'
     testRuntimeOnly 'com.h2database:h2'
