@@ -5,10 +5,13 @@ import com.product.application.dto.result.ProductResult;
 import com.product.application.factory.ProductResultFactory;
 import com.product.application.factory.ProductRuntimeCacheFactory;
 import com.product.application.port.out.ProductCacheMetricsPort;
+import com.product.application.port.out.ProductCacheSingleFlightLock;
+import com.product.application.port.out.ProductCacheSingleFlightLockPort;
 import com.product.application.port.out.ProductDetailCachePort;
 import com.product.application.port.out.ProductReadPort;
 import com.product.application.port.out.ProductRuntimeCachePort;
 import com.product.domain.product.model.Product;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +27,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyCollection;
@@ -48,6 +56,12 @@ class ProductCacheQueryServiceTest {
     private ProductCacheMetricsPort productCacheMetricsPort;
 
     @Mock
+    private ProductCacheSingleFlightLockPort productCacheSingleFlightLockPort;
+
+    @Mock
+    private ProductCacheSingleFlightLock productCacheSingleFlightLock;
+
+    @Mock
     private ProductResultFactory productResultFactory;
 
     @Mock
@@ -55,6 +69,12 @@ class ProductCacheQueryServiceTest {
 
     @InjectMocks
     private ProductCacheQueryService productCacheQueryService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(productCacheSingleFlightLockPort.tryLock(anyLong()))
+                .thenReturn(Optional.of(productCacheSingleFlightLock));
+    }
 
     @Test
     @DisplayName("잘못된 상품 ID 이면 empty 를 반환한다")
@@ -68,6 +88,7 @@ class ProductCacheQueryServiceTest {
                 productDetailCachePort,
                 productRuntimeCachePort,
                 productCacheMetricsPort,
+                productCacheSingleFlightLockPort,
                 productResultFactory,
                 productRuntimeCacheFactory
         );
@@ -211,8 +232,8 @@ class ProductCacheQueryServiceTest {
                 .thenReturn(Map.of(cachedProductId, runtime2));
         when(cached2.applyRuntime(runtime2)).thenReturn(merged2);
 
-        when(productReadPort.findAllByIdIn(List.of(fallbackProductId, notFoundProductId)))
-                .thenReturn(List.of(product1));
+        when(productReadPort.findAllByIdIn(List.of(fallbackProductId))).thenReturn(List.of(product1));
+        when(productReadPort.findAllByIdIn(List.of(notFoundProductId))).thenReturn(List.of());
         when(productResultFactory.from(product1)).thenReturn(base1);
         when(productRuntimeCacheFactory.from(fallbackProductId, null, stock, FIXED_UPDATED_AT)).thenReturn(runtime1);
         when(base1.applyRuntime(runtime1)).thenReturn(merged1);
@@ -233,6 +254,73 @@ class ProductCacheQueryServiceTest {
 
         assertThat(detailCaptor.getValue()).containsExactly(base1);
         assertThat(runtimeCaptor.getValue()).containsExactly(runtime1);
+    }
+
+    @Test
+    @DisplayName("동일 JVM 안의 같은 상품 cache miss 는 local single-flight 로 DB fallback 을 1회만 수행한다")
+    void getProduct_whenSameProductMissesConcurrently_thenFallbackOnceInSameJvm() throws Exception {
+        Long productId = 1L;
+        Integer stock = 10;
+
+        Product product = mockProduct(productId, stock);
+        ProductResult baseResult = mockResult(productId);
+        ProductRuntimeCacheData runtime = mock(ProductRuntimeCacheData.class);
+        ProductResult mergedResult = mockResult(productId);
+        CountDownLatch dbFallbackStarted = new CountDownLatch(1);
+        CountDownLatch releaseDbFallback = new CountDownLatch(1);
+
+        when(productDetailCachePort.getAll(List.of(productId))).thenReturn(Map.of());
+        when(productRuntimeCachePort.getAll(List.of(productId))).thenReturn(Map.of());
+        when(productReadPort.findAllByIdIn(List.of(productId))).thenAnswer(invocation -> {
+            dbFallbackStarted.countDown();
+            assertThat(releaseDbFallback.await(1, TimeUnit.SECONDS)).isTrue();
+            return List.of(product);
+        });
+        when(productResultFactory.from(product)).thenReturn(baseResult);
+        when(productRuntimeCacheFactory.from(productId, null, stock, FIXED_UPDATED_AT)).thenReturn(runtime);
+        when(baseResult.applyRuntime(runtime)).thenReturn(mergedResult);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Optional<ProductResult>> first = executor.submit(() -> productCacheQueryService.getProduct(productId));
+            assertThat(dbFallbackStarted.await(1, TimeUnit.SECONDS)).isTrue();
+
+            Future<Optional<ProductResult>> second = executor.submit(() -> productCacheQueryService.getProduct(productId));
+            releaseDbFallback.countDown();
+
+            assertThat(first.get(1, TimeUnit.SECONDS)).contains(mergedResult);
+            assertThat(second.get(1, TimeUnit.SECONDS)).contains(mergedResult);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        verify(productReadPort, times(1)).findAllByIdIn(List.of(productId));
+    }
+
+    @Test
+    @DisplayName("분산 락 획득이 실패해도 DB fallback 으로 degrade 한다")
+    void getProduct_whenDistributedLockFails_thenFallbackToDb() {
+        Long productId = 1L;
+        Integer stock = 10;
+
+        Product product = mockProduct(productId, stock);
+        ProductResult baseResult = mockResult(productId);
+        ProductRuntimeCacheData runtime = mock(ProductRuntimeCacheData.class);
+        ProductResult mergedResult = mockResult(productId);
+
+        when(productDetailCachePort.getAll(List.of(productId))).thenReturn(Map.of());
+        when(productRuntimeCachePort.getAll(List.of(productId))).thenReturn(Map.of());
+        when(productCacheSingleFlightLockPort.tryLock(productId))
+                .thenThrow(new RuntimeException("redis lock down"));
+        when(productReadPort.findAllByIdIn(List.of(productId))).thenReturn(List.of(product));
+        when(productResultFactory.from(product)).thenReturn(baseResult);
+        when(productRuntimeCacheFactory.from(productId, null, stock, FIXED_UPDATED_AT)).thenReturn(runtime);
+        when(baseResult.applyRuntime(runtime)).thenReturn(mergedResult);
+
+        Optional<ProductResult> actual = productCacheQueryService.getProduct(productId);
+
+        assertThat(actual).contains(mergedResult);
+        verify(productReadPort).findAllByIdIn(List.of(productId));
     }
 
     @Test
@@ -281,6 +369,7 @@ class ProductCacheQueryServiceTest {
                 productDetailCachePort,
                 productRuntimeCachePort,
                 productCacheMetricsPort,
+                productCacheSingleFlightLockPort,
                 productResultFactory,
                 productRuntimeCacheFactory
         );
