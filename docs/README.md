@@ -1,6 +1,6 @@
 # Product Cache Service
 
-[![CI](https://github.com/jongdae/product-cache-service/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jongdae/product-cache-service/actions/workflows/ci.yml)
+[![CI](https://github.com/jjd0922/product-cache-service/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jjd0922/product-cache-service/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/jongdae/product-cache-service/branch/main/graph/badge.svg)](https://codecov.io/gh/jongdae/product-cache-service)
 [![Java](https://img.shields.io/badge/Java-17-orange)]()
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-green)]()
