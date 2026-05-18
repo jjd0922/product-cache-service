@@ -3,7 +3,6 @@ package infrastructure.cache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.product.application.dto.result.ProductResult;
 import com.product.infrastructure.cache.RedisProductDetailCacheAdapter;
-import com.product.infrastructure.cache.support.ProductCacheCircuitBreaker;
 import com.product.infrastructure.cache.support.ProductCacheKeyGenerator;
 import com.product.infrastructure.cache.support.ProductCacheTtlPolicy;
 import com.product.infrastructure.cache.support.RedisCacheBatchExecutor;
@@ -30,11 +29,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(classes = RedisProductDetailCacheAdapterIntegrationTest.TestApplication.class)
@@ -69,22 +65,12 @@ class RedisProductDetailCacheAdapterIntegrationTest {
     @MockBean
     private ProductCacheTtlPolicy ttlPolicy;
 
-    @MockBean
-    private ProductCacheCircuitBreaker circuitBreaker;
-
     @BeforeEach
     void setUp() {
         when(properties.getDetailTtlSeconds()).thenReturn(300L);
         when(properties.getPipelineBatchSize()).thenReturn(100);
         when(keyGenerator.detailKey(1L)).thenReturn("product:detail:1");
         when(ttlPolicy.detailTtlSeconds()).thenReturn(300L);
-        when(circuitBreaker.executeSupplier(any())).thenAnswer(invocation ->
-                ((Supplier<?>) invocation.getArgument(0)).get()
-        );
-        doAnswer(invocation -> {
-            ((Runnable) invocation.getArgument(0)).run();
-            return null;
-        }).when(circuitBreaker).executeRunnable(any());
 
         redisTemplate.execute((RedisCallback<Object>) connection -> {
             connection.serverCommands().flushDb();
