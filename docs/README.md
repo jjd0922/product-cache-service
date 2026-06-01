@@ -69,21 +69,6 @@
 
 ## 모듈 구조
 
-```mermaid
-flowchart LR
-    Client[Client] --> API[product-api]
-    API --> App[product-application]
-    App --> Domain[product-domain]
-    App --> Infra[product-infrastructure]
-
-    Infra --> Redis[(Redis)]
-    Infra --> MySQL[(MySQL)]
-    Infra --> Prometheus[Prometheus]
-    Infra --> Jaeger[Jaeger]
-
-    Prometheus --> Grafana[Grafana]
-```
-
 ```text
 product-cache-service
 ├── product-api
@@ -95,6 +80,30 @@ product-cache-service
 ├── loadtest                  # k6 부하 테스트 시나리오
 ├── .github/workflows         # CI 파이프라인
 └── docker-compose.yml
+```
+## flow-chart
+
+```mermaid
+flowchart TD
+    A["상품 상세 조회 요청<br/>GET /products/{id}"] --> B{"Negative Cache Hit?"}
+
+    B -->|Yes| C["404 Not Found 반환"]
+    B -->|No| D{"Detail Cache + Runtime Cache Hit?"}
+
+    D -->|Yes| E["캐시 데이터 병합"]
+    E --> F["200 OK 반환"]
+
+    D -->|No| G["Local Single-Flight 적용"]
+    G --> H["Redis Distributed Lock 획득"]
+    H --> I[("DB 조회")]
+
+    I --> J{"상품 존재 여부"}
+
+    J -->|Yes| K["Detail / Runtime Cache 저장"]
+    K --> F
+
+    J -->|No| L["Negative Cache 저장"]
+    L --> C
 ```
 
 ### product-api
