@@ -16,8 +16,8 @@
 - Hot/Cold 조회는 p99 **246.34ms → 16.86ms**, 다건 조회는 DB 부하 **-99.0%** 대신 latency trade-off 발생
 - Hot key TTL 동시 만료 시에도 DB 조회는 1회로 수렴 — **로컬 single-flight + Redis 분산 락**
 - 존재하지 않는 키 폭주에도 DB fallback이 폭주하지 않음 — **negative caching**
-- Redis 완전 다운 상황에서도 DB가 무너지지 않음 — **Resilience4j Circuit Breaker + Bulkhead**
-- 캐시 read·write·fallback·rebuild·event 전 흐름이 단일 trace에 — **OpenTelemetry + Jaeger**
+- Redis 완전 다운 상황에서도 DB fallback 동시 호출을 제한 — **Resilience4j Circuit Breaker + Bulkhead**
+- 캐시 read·write·fallback·rebuild·event 주요 흐름을 trace로 추적 — **OpenTelemetry + Jaeger**
 - 운영 로그는 JSON 구조화 + requestId/userId MDC + 민감정보 마스킹 적용
 
 ## 기술 스택
@@ -68,6 +68,21 @@
 - 표준 예외 응답 + 실패 사유 정규화
 
 ## 모듈 구조
+
+```mermaid
+flowchart LR
+    Client[Client] --> API[product-api]
+    API --> App[product-application]
+    App --> Domain[product-domain]
+    App --> Infra[product-infrastructure]
+
+    Infra --> Redis[(Redis)]
+    Infra --> MySQL[(MySQL)]
+    Infra --> Prometheus[Prometheus]
+    Infra --> Jaeger[Jaeger]
+
+    Prometheus --> Grafana[Grafana]
+```
 
 ```text
 product-cache-service
@@ -134,6 +149,23 @@ product:v1:notfound:{productId}     # negative cache
 - **키 prefix 버전(`v1`)**: 직렬화 스키마 변경 시 무중단 전환
 
 ### 조회 흐름
+
+```mermaid
+flowchart TD
+    Start[GET /products/{id}] --> Negative{Negative cache hit?}
+    Negative -->|Yes| NotFound[404 Not Found]
+    Negative -->|No| Cache{Detail + Runtime hit?}
+    Cache -->|Yes| Merge[Merge cache data]
+    Merge --> Ok[200 OK]
+    Cache -->|No| Flight[Local single-flight]
+    Flight --> Lock[Redis distributed lock]
+    Lock --> DB[(DB fallback)]
+    DB --> Exists{Product exists?}
+    Exists -->|Yes| Write[Write detail/runtime cache]
+    Write --> Ok
+    Exists -->|No| Mark[Write negative cache]
+    Mark --> NotFound
+```
 
 1. negative cache 우선 조회 → hit이면 즉시 404
 2. detail/runtime cache 조회
@@ -292,7 +324,7 @@ Jaeger      http://localhost:16686
 
 캡처는 Hot/Cold 부하 테스트 중 수집한 화면이다. Cache hit ratio, fallback rate, Product API p99 latency, Redis circuit closed 상태를 한 화면에서 확인할 수 있다. Rebuild/Event 패널은 해당 작업 또는 이벤트를 발생시킨 경우에만 데이터가 표시된다.
 
-SLI/SLO는 작성 예정이다.
+장애 감지에 필요한 관측 지표와 알림 후보는 [`failure-response-policy.md`](./failure-response-policy.md)에 정리되어 있다.
 
 ## API 운영성
 
@@ -353,7 +385,7 @@ PR 머지 차단은 GitHub 저장소 설정에서 `main` 브랜치 보호 규칙
 
 ## 주요 설계 결정 (ADR 요약)
 
-자세한 내용은 `docs/adr/`에 정리할 예정이다.
+자세한 내용은 [ADR](adr.md)에 정리되어 있다.
 
 | 결정 | 대안 | 선택 이유 | Trade-off |
 |---|---|---|---|
@@ -368,9 +400,7 @@ PR 머지 차단은 GitHub 저장소 설정에서 `main` 브랜치 보호 규칙
 - [장애 대응 정책](./failure-response-policy.md)
 - [장애 시나리오 케이스 스터디](./failure-scenarios.md)
 - [성능 벤치마크 결과](./benchmark.md)
-- SLI/SLO 정의 *(작성 예정)*
-- ADR (Architecture Decision Records) *(작성 예정)*
-- [설계 상세 문서 (Notion)](https://www.notion.so/Product-Cache-Service-32dd2aef6d3180659e80c88cccd7a58c)
+- [ADR (Architecture Decision Records)](adr.md)
 
 ## 향후 진화 방향
 
@@ -379,6 +409,6 @@ PR 머지 차단은 GitHub 저장소 설정에서 `main` 브랜치 보호 규칙
 - **Outbox 패턴 + Kafka 전환**: 멀티 서비스 환경에서 이벤트 신뢰성 강화
 - **Read replica 분산**: 대규모 트래픽 환경에서 Redis Cluster 또는 Sentinel 도입
 - **재구축 병렬 처리**: chunk 단위 worker pool로 처리 시간 단축
-- **운영 알림 정책**: PagerDuty / Slack 연동으로 SLO 위반 시 자동 알림
+- **운영 알림 정책**: PagerDuty / Slack 연동으로 주요 장애 신호 자동 알림
 
 각 항목은 현재 설계와의 결합도가 낮도록 의도적으로 계층 분리해 두었기 때문에 점진적 도입이 가능하다.

@@ -76,3 +76,17 @@
 - 장애 유형별 알림 임계치
 - 재빌드 작업 강제 종료 및 재시작 정책
 - Redis Stream DLQ는 Redis persistence 설정에 영향을 받으므로 운영 환경에서는 AOF 활성화 또는 DB 기반 DLQ 전환을 검토한다.
+
+## 관측 및 알림 후보
+
+아래 항목은 실제 운영 SLO가 아니라, 장애를 빠르게 감지하기 위한 관측 후보로 둔다. 포트폴리오 문서에서는 구현된 메트릭과 확인 가능한 대응 흐름을 중심으로 설명하고, 장기간 운영 데이터가 필요한 목표치는 별도 SLO로 단정하지 않는다.
+
+| 조건 | 확인 지표 | 대응 |
+|---|---|---|
+| 5xx 비율 증가 | `http.server.requests` status | 최근 배포, Redis/DB 상태, 예외 로그 확인 |
+| p99 latency 급증 | API latency histogram, trace slow span | cache miss, fallback, Redis latency 확인 |
+| DB fallback 증가 | `product.cache.fallback.items` | cache hit ratio, Redis circuit state, DB connection pool 확인 |
+| fallback reject 발생 | `product.cache.fallback.rejected` | bulkhead 포화 여부와 DB 보호 상태 확인 |
+| Redis circuit open 지속 | `product.cache.circuit.state` | Redis 복구 상태와 half-open 전환 확인 |
+| DLQ 이벤트 증가 | `product.cache.event.dlq` | 실패 사유 확인 후 관리자 API로 재처리 |
+| rebuild job 실패 | `product.cache.rebuild.jobs{result="error"}` | 실패 사유 확인 후 제한적으로 재실행 |
