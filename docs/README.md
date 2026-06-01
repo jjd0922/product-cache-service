@@ -8,7 +8,7 @@
 
 상품 조회 성능과 운영 안정성을 함께 고려해 설계한 멀티 모듈 기반 백엔드 서비스다.
 
-단순 CRUD API뿐만 아니라 Redis 캐시, Cache-Aside, 누락 캐시 복구, 캐시 스탬피드 방어, 관리자용 캐시 재구축, 이벤트 기반 갱신, 분산 트레이싱, 장애 대응까지 포함해 실제 운영 환경에서 자주 마주치는 문제를 구조적으로 다루는 데 초점을 맞췄다.
+단순 CRUD API가 아니라 Redis 캐시, Cache-Aside, 누락 캐시 복구, 캐시 스탬피드 방어, 관리자용 캐시 재구축, 이벤트 기반 갱신, 분산 트레이싱, 장애 대응까지 포함해 실제 운영 환경에서 자주 마주치는 문제를 구조적으로 다루는 데 초점을 맞췄다.
 
 ## Highlight
 
@@ -38,7 +38,7 @@
 - 반복 조회가 많은 상품 API의 DB 부하를 줄인다.
 - 캐시를 단순 성능 보조 수단이 아니라 *운영 가능한 데이터 계층* 으로 관리한다.
 - 캐시 일부 유실 상황에서도 DB fallback과 누락 키 자동 재적재로 응답 안정성을 유지한다.
-- **Hot key 동시 만료 / 존재하지 않는 키 폭주 / Redis 다운** 같은 운영 시나리오에 명시적으로 대응한다.
+- **Hot key 동시 만료 / 존재하지 않는 키 폭주 / Redis 다운** 같은 운영 단골 시나리오에 명시적으로 대응한다.
 - 재구축 작업의 진행률, 활성 여부, 실패 사유를 추적할 수 있게 한다.
 - 이벤트 기반 갱신으로 상품 변경 후 캐시 정합성을 보강하고, 실패 이벤트는 retry → DLQ로 안전하게 회수한다.
 - 메트릭/로그/분산 트레이싱 3축으로 관측성을 확보한다.
@@ -69,6 +69,21 @@
 
 ## 모듈 구조
 
+```mermaid
+flowchart LR
+    Client[Client] --> API[product-api]
+    API --> App[product-application]
+    App --> Domain[product-domain]
+    App --> Infra[product-infrastructure]
+
+    Infra --> Redis[(Redis)]
+    Infra --> MySQL[(MySQL)]
+    Infra --> Prometheus[Prometheus]
+    Infra --> Jaeger[Jaeger]
+
+    Prometheus --> Grafana[Grafana]
+```
+
 ```text
 product-cache-service
 ├── product-api
@@ -80,30 +95,6 @@ product-cache-service
 ├── loadtest                  # k6 부하 테스트 시나리오
 ├── .github/workflows         # CI 파이프라인
 └── docker-compose.yml
-```
-## flow-chart
-
-```mermaid
-flowchart TD
-    A["상품 상세 조회 요청<br/>GET /products/{id}"] --> B{"Negative Cache Hit?"}
-
-    B -->|Yes| C["404 Not Found 반환"]
-    B -->|No| D{"Detail Cache + Runtime Cache Hit?"}
-
-    D -->|Yes| E["캐시 데이터 병합"]
-    E --> F["200 OK 반환"]
-
-    D -->|No| G["Local Single-Flight 적용"]
-    G --> H["Redis Distributed Lock 획득"]
-    H --> I[("DB 조회")]
-
-    I --> J{"상품 존재 여부"}
-
-    J -->|Yes| K["Detail / Runtime Cache 저장"]
-    K --> F
-
-    J -->|No| L["Negative Cache 저장"]
-    L --> C
 ```
 
 ### product-api
@@ -161,19 +152,25 @@ product:v1:notfound:{productId}     # negative cache
 
 ```mermaid
 flowchart TD
-    Start[GET /products/{id}] --> Negative{Negative cache hit?}
-    Negative -->|Yes| NotFound[404 Not Found]
-    Negative -->|No| Cache{Detail + Runtime hit?}
-    Cache -->|Yes| Merge[Merge cache data]
-    Merge --> Ok[200 OK]
-    Cache -->|No| Flight[Local single-flight]
-    Flight --> Lock[Redis distributed lock]
-    Lock --> DB[(DB fallback)]
-    DB --> Exists{Product exists?}
-    Exists -->|Yes| Write[Write detail/runtime cache]
-    Write --> Ok
-    Exists -->|No| Mark[Write negative cache]
-    Mark --> NotFound
+    A["상품 상세 조회 요청<br/>GET /products/{id}"] --> B{"Negative Cache Hit?"}
+
+    B -->|Yes| C["404 Not Found 반환"]
+    B -->|No| D{"Detail Cache + Runtime Cache Hit?"}
+
+    D -->|Yes| E["캐시 데이터 병합"]
+    E --> F["200 OK 반환"]
+
+    D -->|No| G["Local Single-Flight 적용"]
+    G --> H["Redis Distributed Lock 획득"]
+    H --> I[("DB 조회")]
+
+    I --> J{"상품 존재 여부"}
+
+    J -->|Yes| K["Detail / Runtime Cache 저장"]
+    K --> F
+
+    J -->|No| L["Negative Cache 저장"]
+    L --> C
 ```
 
 1. negative cache 우선 조회 → hit이면 즉시 404
